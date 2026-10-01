@@ -1,5 +1,6 @@
 """data/raw/*.json -> data/navarra.duckdb con el esquema común (ver 04-calidad-datos.md)."""
 
+import csv
 import json
 from pathlib import Path
 
@@ -8,9 +9,11 @@ import httpx
 from pyproj import Transformer
 from shapely.geometry import Point, shape
 
-from navarra_trip.ingest import osm, wikidata
+from navarra_trip.ingest import ckan as extra_ckan
+from navarra_trip.ingest import extra, osm, wikidata
 from navarra_trip.ingest.ckan import RAW
 from navarra_trip.ingest.geocode import Geocoder
+from navarra_trip.ingest.wikidata import Cliente
 
 DB = Path("data/navarra.duckdb")
 GEOCACHE = Path("data/geocache.json")
@@ -32,6 +35,7 @@ TIPO_ALOJAMIENTO = {
     "Pensión": "hotel",
     "Albergue turístico": "albergue",
     "Camping": "camping",
+    "Agroturismo": "rural",
 }
 
 
@@ -78,16 +82,28 @@ def recursos(mon: dict, esp: dict) -> list[dict]:
     return filas
 
 
-def establecimientos(raw: dict, pref: str, geo: Geocoder) -> list[dict]:
+MANUAL = Path(__file__).with_name("establecimientos_manual.csv")
+
+
+def leer_manual(ruta: Path = MANUAL) -> dict[str, tuple[float, float]]:
+    """id -> (lon, lat) revisadas a mano; mandan sobre la geolocalización."""
+    with ruta.open(encoding="utf-8") as f:
+        return {r["id"]: (float(r["lon"]), float(r["lat"])) for r in csv.DictReader(f)}
+
+
+def establecimientos(raw: dict, pref: str, geo: Geocoder, manual: dict | None = None) -> list[dict]:
+    manual = leer_manual() if manual is None else manual
     filas = []
     for r in _unicos(raw["registros"], "COD_INSCRIPCION"):
-        lon, lat, precision = geo.geocodificar(r["DIRECCION"], r["LOCALIDAD"], r["MUNICIPIO"]) or (
-            None,
-            None,
-            None,
-        )
+        id = f"{pref}:{r['COD_INSCRIPCION'].strip().upper()}"
+        if id in manual:
+            (lon, lat), precision = manual[id], "manual"
+        else:
+            lon, lat, precision = geo.geocodificar(
+                r["DIRECCION"], r["LOCALIDAD"], r["MUNICIPIO"]
+            ) or (None, None, None)
         f = {
-            "id": f"{pref}:{r['COD_INSCRIPCION'].strip().upper()}",
+            "id": id,
             "nombre": r["NOMBRE"].strip(),
             "categoria": r["CATEGORIA"],
             "direccion": r["DIRECCION"],
@@ -104,10 +120,12 @@ def establecimientos(raw: dict, pref: str, geo: Geocoder) -> list[dict]:
             f |= {
                 "modalidad": r["MODALIDAD"],
                 "tipo": TIPO_ALOJAMIENTO.get(r["MODALIDAD"]),
-                "plazas": int(r["PLAZAS"]),
+                "plazas": int(r["PLAZAS"]) if r["PLAZAS"] else None,  # agroturismos: sin dato
             }
-        else:
+        elif pref == "rest":
             f["especialidad"] = None if r["Especialidad"] == "Desconocido" else r["Especialidad"]
+        else:
+            f |= extra.actividades_extra(r)
         filas.append(f)
     return filas
 
@@ -118,7 +136,8 @@ def guardar(con: duckdb.DuckDBPyConnection, tabla: str, filas: list[dict]) -> No
         f"CREATE TABLE {tabla} AS SELECT * FROM (SELECT unnest($f, recursive := true))",
         {"f": filas},
     )
-    con.execute(f"ALTER TABLE {tabla} ADD PRIMARY KEY (id)")
+    if "id" in filas[0]:
+        con.execute(f"ALTER TABLE {tabla} ADD PRIMARY KEY (id)")
 
 
 # El contorno del CKAN está simplificado (~150 vértices): sin margen, la Mesa de los Tres Reyes o
@@ -136,36 +155,52 @@ def fuera_de_navarra(filas: list[dict], contorno: dict) -> list[str]:
 
 
 def main() -> None:
-    """`navarra-normalizar`: la 1.ª vez geolocaliza (~20-30 min) y consulta Wikidata y OSM (~8 min).
+    """`navarra-normalizar`: la 1.ª vez geolocaliza (~30 min) y consulta Wikidata, OSM e IDENA
+    (~10 min). Después todo sale de la caché.
 
-    Después todo sale de la caché.
+    Mientras Claude Desktop tenga abierto el servidor MCP, la base está bloqueada: ciérralo antes.
     """
     cargar = lambda n: json.loads((RAW / f"{n}.json").read_text(encoding="utf-8"))  # noqa: E731
     mon, esp = cargar("arte-y-monumentos"), cargar("espacios-naturales")
     aloj = cargar("alojamientos-inscritos-en-el-registro-de-turismo-de-navarra")
+    agro = extra.agroturismos_como_alojamientos(
+        cargar("agroturismos-en-activo-del-registro-de-turismo-de-navarra")
+    )
     rest = cargar("restaurantes-inscritos-en-el-registro-de-turismo-de-navarra")
+    act = cargar("empresas-de-actividades-inscritas-en-el-registro-de-turismo-de-navarra")
     cache = json.loads(GEOCACHE.read_text(encoding="utf-8")) if GEOCACHE.exists() else {}
     with httpx.Client(timeout=30, headers={"User-Agent": "navarra-trip-agent"}) as client:
         geo = Geocoder(client, cache)
         try:
             tablas = {
                 "recurso": recursos(mon, esp),
-                "alojamiento": establecimientos(aloj, "aloj", geo),
+                "alojamiento": establecimientos(aloj, "aloj", geo)
+                + establecimientos(agro, "aloj", geo),
                 "restaurante": establecimientos(rest, "rest", geo),
+                "actividad": establecimientos(act, "act", geo),
             }
+            n = extra.completar_municipios(tablas["recurso"], Cliente(client, cache))
+            print(f"municipio    {n} recursos completados con los límites de IDENA")
         finally:
             GEOCACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
         wikidata.ejecutar(tablas["recurso"], client)
         osm.ejecutar(tablas["recurso"], client)
+    tablas["oficina"] = extra.oficinas(cargar(extra_ckan.OFICINAS))
+    tablas["ave"] = extra.aves(cargar("turismo-ornitol-gico"))
+    tablas["afluencia"] = extra.afluencia(
+        cargar("recursos-turisticos"), extra.leer_afluencia_manual()
+    )
+    extra.visitantes_12m(tablas["recurso"], tablas["afluencia"])
     with duckdb.connect(DB) as con:
         for tabla, filas in tablas.items():
             guardar(con, tabla, filas)
-            sin_geo = sum(f["lon"] is None for f in filas)
-            fuera = fuera_de_navarra(filas, mon["spatial"])
-            print(
-                f"{tabla:12} {len(filas):5} filas | sin coords {sin_geo} | fuera de Navarra {fuera}"
-            )
-        for tabla in ("alojamiento", "restaurante"):
+            linea = f"{tabla:12} {len(filas):5} filas"
+            if "lon" in filas[0]:
+                sin_geo = sum(f["lon"] is None for f in filas)
+                fuera = fuera_de_navarra(filas, mon["spatial"])
+                linea += f" | sin coords {sin_geo} | fuera de Navarra {fuera}"
+            print(linea)
+        for tabla in ("alojamiento", "restaurante", "actividad"):
             print(
                 con.sql(f"SELECT geo_precision, count(*) n FROM {tabla} GROUP BY 1 ORDER BY n DESC")
             )

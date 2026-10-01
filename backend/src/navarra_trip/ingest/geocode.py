@@ -1,6 +1,7 @@
 """Geolocaliza direcciones del Registro de Turismo con CartoCiudad (IGN), con caché de consultas."""
 
 import difflib
+import math
 import re
 import time
 import unicodedata
@@ -28,6 +29,20 @@ def parecida(a: str, b: str) -> bool:
     """CartoCiudad corrige la grafía (Guipuzcoa -> GIPUZKOA) pero a veces devuelve otra calle."""
     a, b = _norm(a), _norm(b)
     return a in b or b in a or difflib.SequenceMatcher(None, a, b).ratio() >= 0.6
+
+
+# Un portal a más de esto del centro de su localidad es de otro pueblo con una calle igual
+# ("San Martín 12, Azanza" caía en otra localidad). Pamplona mide ~5 km de punta a punta.
+MAX_KM_PORTAL = 5
+
+
+def km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = (
+        math.sin((p2 - p1) / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    )
+    return 6371 * 2 * math.asin(math.sqrt(a))
 
 
 def _es(lugar: str) -> str:
@@ -88,6 +103,7 @@ class Geocoder:
         Formatos comprobados a mano: añadir ', Navarra' o el piso a una dirección hace que no la
         encuentre.
         """
+        centro = self.lugar(_es(localidad), "poblacion", _es(municipio))
         if p := portal(direccion):
             r = self.buscar(f"{p[0]} {p[1]}, {_es(localidad)}")
             if (
@@ -95,10 +111,14 @@ class Geocoder:
                 and r["type"] == "portal"
                 and r["provinceCode"] == NAVARRA
                 and parecida(p[0], r["address"])
+                and (
+                    not centro
+                    or km(r["lng"], r["lat"], centro["lng"], centro["lat"]) <= MAX_KM_PORTAL
+                )
             ):
                 return r["lng"], r["lat"], "direccion"
-        if r := self.lugar(_es(localidad), "poblacion", _es(municipio)):
-            return r["lng"], r["lat"], "localidad"
+        if centro:
+            return centro["lng"], centro["lat"], "localidad"
         if r := self.lugar(_es(municipio), "municipio"):
             return r["lng"], r["lat"], "municipio"
         return None

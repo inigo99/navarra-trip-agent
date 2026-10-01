@@ -26,6 +26,7 @@ def _rec(id, nombre, cat, sub, desc):
         "descripcion": desc,
         "descripcion_fuente": "wikipedia",
         "horario": None,
+        "visitantes_12m": None,
         "url_fuente": "u",
     }
 

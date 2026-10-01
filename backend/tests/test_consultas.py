@@ -28,6 +28,7 @@ def _rec(id, nombre, cat, sub, lat, lon, estilo=None, municipio="Olite", desc=".
         "descripcion": desc,
         "descripcion_fuente": "wikipedia",
         "horario": None,
+        "visitantes_12m": None,
         "url_fuente": "https://datosabiertos.navarra.es/x",
     }
 

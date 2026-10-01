@@ -101,3 +101,17 @@ def test_error_500_puntual_se_reintenta():
     respuestas = iter([httpx.Response(500), httpx.Response(200, json=FIND["Acella 5, Pamplona"])])
     g = _geo(lambda r: next(respuestas))
     assert g.buscar("Acella 5, Pamplona")["address"] == "ACELLA / AZELLA"
+
+
+def test_portal_de_otro_pueblo_se_descarta_por_distancia():
+    # Caso real: "San Martín 12, Azanza" devolvía una calle San Martín a 15 km
+    FIND["San Martín 12, Azanza"] = {
+        "type": "portal",
+        "address": "SAN MARTIN / DONE MARTIE",
+        "provinceCode": "31",
+        "lat": 42.6914,
+        "lng": -1.6790,
+    }
+    CANDIDATOS["Azanza"] = [{"id": "az", "type": "poblacion", "provinceCode": "31", "muni": "Goñi"}]
+    POR_ID["az"] = (42.8274, -1.8574)
+    assert _geo().geocodificar("San Martín 12", "Azanza", "Goñi") == (-1.8574, 42.8274, "localidad")

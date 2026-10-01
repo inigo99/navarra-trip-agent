@@ -2,11 +2,11 @@
 tienen descripción de Wikipedia/Wikidata, les pone una ficha generada solo con datos de fuente."""
 
 import json
-import math
 from pathlib import Path
 
 import httpx
 
+from navarra_trip.ingest.geocode import km
 from navarra_trip.ingest.wikidata import Cliente, emparejar
 
 # Instancias públicas de Overpass: la principal se satura a menudo (504)
@@ -29,15 +29,7 @@ CLAVES = (
     "amenity=place_of_worship",
 )
 NOMBRES = ("name:es", "name", "alt_name", "official_name")
-
-
-def _km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    a = (
-        math.sin((p2 - p1) / 2) ** 2
-        + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
-    )
-    return 6371 * 2 * math.asin(math.sqrt(a))
+CORTA = 60  # caracteres: por debajo, la descripción de Wikidata se completa con la ficha
 
 
 def candidatos(cli: Cliente, r: dict) -> list[dict]:
@@ -61,7 +53,7 @@ def candidatos(cli: Cliente, r: dict) -> list[dict]:
             {
                 "q": f"{e['type']}/{e['id']}",
                 "textos": [e["tags"][k] for k in NOMBRES if k in e["tags"]],
-                "km": _km(r["lon"], r["lat"], c["lon"], c["lat"]),
+                "km": km(r["lon"], r["lat"], c["lon"], c["lat"]),
                 "tags": e["tags"],
             }
         )
@@ -108,7 +100,11 @@ def completar(recursos: list[dict], cli: Cliente) -> None:
                 r["web"] = t.get("website") or t.get("contact:website")
                 r["de_pago"] = {"yes": True, "no": False}.get(t.get("fee"))
                 r["nombre_eu"] = t.get("name:eu")
-        if not r["descripcion"]:
+        if r["descripcion_fuente"] == "wikidata" and len(r["descripcion"]) < CORTA:
+            # "bien de interés cultural" sola no dice nada: ficha + esa línea
+            r["descripcion"] = f"{ficha(r)} {r['descripcion'][0].upper()}{r['descripcion'][1:]}."
+            r["descripcion_fuente"] = "ficha"
+        elif not r["descripcion"]:
             r["descripcion"] = ficha(r)
             r["descripcion_fuente"] = "ficha"
             r["url_descripcion"] = (

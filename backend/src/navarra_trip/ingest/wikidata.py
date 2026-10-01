@@ -1,7 +1,7 @@
 """Enriquece los recursos con Wikidata y la entrada de Wikipedia en español.
 
 1. Candidatos: elementos de Wikidata cerca del recurso (SPARQL `wikibase:around`).
-2. Emparejado automático por nombre y distancia; `wikidata_manual.csv` manda sobre él.
+2. Emparejado automático por nombre y distancia; `recursos_manual.csv` manda sobre él.
 3. Datos del elemento (`wbgetentities`) e introducción de Wikipedia ES (`prop=extracts`).
 
 Todo pasa por una caché en disco: la 2.ª ejecución no hace peticiones.
@@ -22,7 +22,7 @@ WIKIDATA = "https://www.wikidata.org/w/api.php"
 WIKIPEDIA = "https://es.wikipedia.org/w/api.php"
 CACHE = Path("data/raw/wikidata_cache.json")
 REVISION = Path("data/wikidata_revision.csv")
-MANUAL = Path(__file__).with_name("wikidata_manual.csv")
+MANUAL = Path(__file__).with_name("recursos_manual.csv")
 UA = {"User-Agent": "navarra-trip-agent/0.1 (https://github.com/inigo99/navarra-trip-agent)"}
 
 RADIO_KM = {"monumento": 2, "natural": 8}  # los espacios naturales son grandes
@@ -82,15 +82,16 @@ def emparejar(recurso: dict, candidatos: list[dict]) -> tuple[str | None, list[t
     return (ranking[0][1] if ranking[0][0] >= UMBRAL and unico else None), ranking[:3]
 
 
-def leer_manual(ruta: Path = MANUAL) -> dict[str, tuple[str | None, float | None, float | None]]:
-    """id -> (qid o None, lon, lat). lon/lat vacías = se mantienen las de la fuente oficial."""
+def leer_manual(ruta: Path = MANUAL) -> dict[str, dict]:
+    """id -> {q, lon, lat, descripcion}. Vacío = se mantiene lo de la fuente."""
     with ruta.open(encoding="utf-8") as f:
         return {
-            r["id"]: (
-                r["wikidata_id"] or None,
-                float(r["lon"]) if r["lon"] else None,
-                float(r["lat"]) if r["lat"] else None,
-            )
+            r["id"]: {
+                "q": r["wikidata_id"] or None,
+                "lon": float(r["lon"]) if r["lon"] else None,
+                "lat": float(r["lat"]) if r["lat"] else None,
+                "descripcion": r["descripcion"] or None,
+            }
             for r in csv.DictReader(f)
         }
 
@@ -187,7 +188,7 @@ def _commons(fichero: str) -> str:
     return "https://commons.wikimedia.org/wiki/Special:FilePath/" + fichero.replace(" ", "_")
 
 
-def enriquecer(recursos: list[dict], cli: Cliente, manual: dict[str, tuple]) -> list[list]:
+def enriquecer(recursos: list[dict], cli: Cliente, manual: dict[str, dict]) -> list[list]:
     """Añade wikidata_id, descripcion, url_descripcion e imagen_url a cada recurso (in situ).
 
     Coordenadas: las de la revisión manual mandan; si no hay y el recurso no tiene, las de
@@ -195,10 +196,10 @@ def enriquecer(recursos: list[dict], cli: Cliente, manual: dict[str, tuple]) -> 
     """
     revision = []
     for r in recursos:
-        if r["id"] in manual:
-            r["wikidata_id"], lon, lat = manual[r["id"]]
-            if lon is not None:
-                r["lon"], r["lat"] = lon, lat
+        if m := manual.get(r["id"]):
+            r["wikidata_id"] = m["q"]
+            if m["lon"] is not None:
+                r["lon"], r["lat"] = m["lon"], m["lat"]
             continue
         if r["lon"] is None:
             r["wikidata_id"] = None
@@ -226,6 +227,9 @@ def enriquecer(recursos: list[dict], cli: Cliente, manual: dict[str, tuple]) -> 
         r["imagen_url"] = e.get("imagen")
         if r["lon"] is None and e.get("lon") is not None:
             r["lon"], r["lat"] = e["lon"], e["lat"]
+        if (m := manual.get(r["id"])) and m["descripcion"]:
+            r["descripcion"], r["descripcion_fuente"] = m["descripcion"], "manual"
+            r["url_descripcion"] = r["url_fuente"]
     return revision
 
 

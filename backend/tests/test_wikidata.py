@@ -17,6 +17,7 @@ def _r(**kw):
         "categoria": "monumento",
         "lon": -1.2,
         "lat": 42.6,
+        "url_fuente": "https://datosabiertos.navarra.es/x",
     } | kw
 
 
@@ -93,9 +94,13 @@ def _recursos():
     ]
 
 
+def _m(q=None, lon=None, lat=None, d=None):
+    return {"q": q, "lon": lon, "lat": lat, "descripcion": d}
+
+
 def test_enriquecer_de_principio_a_fin():
     recursos = _recursos()
-    manual = {"esp:4310": ("Q63301905", None, None), "esp:5871": (None, -1.10, 43.0)}
+    manual = {"esp:4310": _m("Q63301905"), "esp:5871": _m(None, -1.10, 43.0, "Cascada de 20 m.")}
     cache = {}
     revision = enriquecer(
         recursos, Cliente(httpx.Client(transport=httpx.MockTransport(_api)), cache, pausa=0), manual
@@ -107,7 +112,8 @@ def test_enriquecer_de_principio_a_fin():
     assert javier["imagen_url"].endswith("Javier_castillo.jpg")
     assert (nacedero["lon"], nacedero["lat"]) == (-2.11, 42.76)  # coordenadas de Wikidata
     assert nacedero["descripcion"] == "Cascada de Navarra"  # sin Wikipedia: descripción corta
-    assert cubo["wikidata_id"] is None and cubo["descripcion"] is None
+    assert cubo["wikidata_id"] is None
+    assert (cubo["descripcion"], cubo["descripcion_fuente"]) == ("Cascada de 20 m.", "manual")
     assert (cubo["lon"], cubo["lat"]) == (-1.10, 43.0)  # coordenadas de la revisión manual
     assert revision == []
     # 2.ª vez sin red: todo sale de la caché
@@ -117,7 +123,8 @@ def test_enriquecer_de_principio_a_fin():
 def test_manual_csv_es_coherente():
     manual = leer_manual()
     assert len(manual) > 50
-    assert all(q is None or q.startswith("Q") for q, _, _ in manual.values())
-    assert manual["mon:3153"] == ("Q1934670", None, None)
-    lon, lat = manual["esp:5871"][1:]
+    assert all(m["q"] is None or m["q"].startswith("Q") for m in manual.values())
+    assert manual["mon:3153"]["q"] == "Q1934670"
+    assert manual["mon:5414"]["descripcion"].startswith("El Castillo de Cortes")
+    lon, lat = manual["esp:5871"]["lon"], manual["esp:5871"]["lat"]
     assert -2.6 < lon < -0.7 and 41.9 < lat < 43.4  # orden lon, lat

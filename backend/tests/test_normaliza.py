@@ -102,3 +102,16 @@ def test_fuera_de_navarra():
         {"id": "c", "lon": None, "lat": None},
     ]
     assert fuera_de_navarra(filas, CUADRADO) == ["b"]
+
+
+def test_coordenadas_manuales_mandan():
+    aloj = establecimientos(ALOJ, "aloj", GeoFalso(), manual={"aloj:UAT1": (-1.858, 42.828)})
+    uat1 = next(a for a in aloj if a["id"] == "aloj:UAT1")
+    assert (uat1["lon"], uat1["lat"], uat1["geo_precision"]) == (-1.858, 42.828, "manual")
+
+
+def test_csv_manual_de_establecimientos():
+    from navarra_trip.ingest.normaliza import leer_manual
+
+    lon, lat = leer_manual()["aloj:UCR00760"]
+    assert -2.6 < lon < -0.7 and 41.9 < lat < 43.4  # orden lon, lat

@@ -4,6 +4,7 @@ Devuelven listas de dicts (JSON directo). Las distancias son en línea recta (ha
 los tiempos reales por carretera los da OSRM (tools/rutas.py).
 """
 
+import unicodedata
 from pathlib import Path
 
 import duckdb
@@ -61,7 +62,8 @@ def _cerca(
 
 _COLS_RECURSO = (
     "id, nombre, categoria, subcategorias, estilo, municipio, zona, lat, lon, "
-    f"left(descripcion, {RESUMEN}) AS descripcion, descripcion_fuente, horario, url_fuente"
+    f"left(descripcion, {RESUMEN}) AS descripcion, descripcion_fuente, horario, visitantes_12m, "
+    "url_fuente"
 )
 
 
@@ -95,6 +97,44 @@ def restaurantes_cerca(
 ) -> list[dict]:
     cols = "id, nombre, categoria, especialidad, localidad, lat, lon, geo_precision, url_fuente"
     return _cerca("restaurante", cols, {}, lat, lon, radio_km, limite, con)
+
+
+def actividades_cerca(
+    con, lat: float, lon: float, radio_km: float = 15, texto: str | None = None, limite: int = 20
+) -> list[dict]:
+    """Empresas de turismo activo y cultural. texto filtra por actividad ('kayak', 'bici')."""
+    cols = "id, nombre, tipo, actividades, localidad, lat, lon, geo_precision, url_fuente"
+    filas = _cerca("actividad", cols, {}, lat, lon, radio_km, 1000, con)
+    if texto:
+        t = _sin_tildes(texto)
+        filas = [f for f in filas if any(t in _sin_tildes(a) for a in f["actividades"] or [])]
+    return filas[:limite]
+
+
+def oficinas_cerca(
+    con, lat: float, lon: float, radio_km: float = 50, limite: int = 5
+) -> list[dict]:
+    """Oficinas de turismo (hay 9 en toda Navarra)."""
+    cols = "id, nombre, zona, direccion, localidad, telefono, email, web, lat, lon, url_fuente"
+    return _cerca("oficina", cols, {}, lat, lon, radio_km, limite, con)
+
+
+def aves(con, zona: str | None = None, presencia: str | None = None) -> list[dict]:
+    """Especies destacadas. zona: 'Montaña', 'Zona Media', 'Pamplona', 'Ribera' (también salen
+    las de 'Todas las zonas'). presencia: 'residente', 'estival', 'invernante'…"""
+    where, params = ["true"], []
+    if zona:
+        where.append("(list_contains(zonas, ?) OR list_contains(zonas, 'Todas las zonas'))")
+        params.append(zona)
+    if presencia:
+        where.append("presencia LIKE '%' || ? || '%'")
+        params.append(presencia)
+    sql = f"SELECT * EXCLUDE (licencia) FROM ave WHERE {' AND '.join(where)} ORDER BY nombre"
+    return _filas(con, sql, params)
+
+
+def _sin_tildes(s: str) -> str:
+    return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
 
 
 def buscar_recursos(

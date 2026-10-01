@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "duckdb>=1.5.6",
+    "fastmcp>=4.0.10",
     "httpx>=0.27",
     "lancedb>=0.39.0",
     "pyproj>=3.8.0",
@@ -17,6 +18,7 @@ navarra-descargar = "navarra_trip.ingest.ckan:main"
 navarra-normalizar = "navarra_trip.ingest.normaliza:main"
 navarra-mapa = "navarra_trip.ingest.mapa:main"
 navarra-indexar = "navarra_trip.tools.semantica:main"
+navarra-mcp = "navarra_trip.mcp_server:main"
 
 [project.optional-dependencies]
 semantica = [

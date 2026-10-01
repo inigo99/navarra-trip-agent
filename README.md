@@ -20,6 +20,24 @@ uv run navarra-descargar          # 4 conjuntos de la v1 a data/raw/ (con caché
 uv run navarra-descargar --force  # volver a descargar
 uv run navarra-normalizar         # data/navarra.duckdb (geolocaliza con CartoCiudad, con caché)
 uv run navarra-mapa               # data/mapa.html: mapa de control con todos los puntos
+uv sync --extra semantica && uv run navarra-indexar   # índice semántico en data/lancedb
+```
+
+## Servidor MCP (`navarra-opendata-mcp`)
+
+Herramientas: `buscar_recursos`, `recursos_cerca`, `alojamientos_cerca`, `restaurantes_cerca`,
+`recurso`, `actividades_cerca`, `oficinas_turismo`, `aves`, `ruta`, `prevision_tiempo` y `conjuntos`. En Claude Desktop
+(`%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "navarra-opendata": {
+      "command": "uv",
+      "args": ["--directory", "C:\\ruta\\navarra-trip-agent\\backend", "run", "--extra", "semantica", "navarra-mcp"]
+    }
+  }
+}
 ```
 
 ## Rutas (OSRM)
@@ -35,6 +53,8 @@ Coche en `:5000`, a pie en `:5001`.
 
 ## Datos
 
-Fuente: [datosabiertos.navarra.es](https://datosabiertos.navarra.es), licencia CC BY 4.0.
+Fuente: [datosabiertos.navarra.es](https://datosabiertos.navarra.es), licencia CC BY 4.0: arte y monumentos, espacios naturales,
+alojamientos y agroturismos, restaurantes y empresas de actividades del Registro de Turismo, turismo ornitológico,
+afluencia a recursos turísticos y oficinas de turismo (IDENA).
 Geolocalización de alojamientos y restaurantes: [CartoCiudad](https://www.cartociudad.es) (IGN), CC BY 4.0.
 Rutas y mapa: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright), ODbL.

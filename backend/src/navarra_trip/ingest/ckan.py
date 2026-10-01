@@ -13,7 +13,17 @@ CONJUNTOS = [
     "espacios-naturales",
     "alojamientos-inscritos-en-el-registro-de-turismo-de-navarra",
     "restaurantes-inscritos-en-el-registro-de-turismo-de-navarra",
+    "agroturismos-en-activo-del-registro-de-turismo-de-navarra",
+    "empresas-de-actividades-inscritas-en-el-registro-de-turismo-de-navarra",
+    "turismo-ornitol-gico",
+    "recursos-turisticos",  # afluencia mensual de visitantes
 ]
+# Oficinas de turismo: no están en el datastore de CKAN, se piden al WFS de IDENA
+OFICINAS = "oficinas-de-turismo"
+WFS_OFICINAS = (
+    "https://idena.navarra.es/ogc/wfs?service=WFS&version=2.0.0&request=GetFeature"
+    "&typeNames=IDENA:DOTACI_Sym_OfiTurismo&outputFormat=application/json&srsName=EPSG:4326"
+)
 RAW = Path("data/raw")
 
 
@@ -64,3 +74,21 @@ def main(argv: list[str] | None = None) -> None:
             datos = descargar(client, nombre)
             destino.write_text(json.dumps(datos, ensure_ascii=False, indent=1), encoding="utf-8")
             print(f"{len(datos['registros']):>6}  {nombre}")
+        destino = RAW / f"{OFICINAS}.json"
+        if force or not destino.exists():
+            datos = descargar_oficinas(client)
+            destino.write_text(json.dumps(datos, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"{len(datos['registros']):>6}  {OFICINAS}")
+
+
+def descargar_oficinas(client: httpx.Client) -> dict:
+    r = client.get(WFS_OFICINAS)
+    r.raise_for_status()
+    return {
+        "conjunto": OFICINAS,
+        "titulo": "Información turística. Oficinas de turismo",
+        "licencia": "CC-BY-4.0",
+        "url_fuente": "https://datosabiertos.navarra.es/es/dataset/spasitnadotaci_sym_ofiturismo-xml",
+        "descargado": datetime.now(UTC).isoformat(timespec="seconds"),
+        "registros": r.json()["features"],
+    }

@@ -103,3 +103,18 @@ def test_si_la_principal_falla_usa_otra_instancia_y_luego_la_cache():
     r2 = _r()
     completar([r2], Cliente(None, cache))  # sin red: sale de la caché de la otra instancia
     assert r2["osm_id"] == "node/605052713"
+
+
+def test_descripcion_corta_de_wikidata_se_completa_con_la_ficha():
+    r = _r(
+        lon=None, lat=None, descripcion="bien de interés cultural", descripcion_fuente="wikidata"
+    )
+    completar([r], Cliente(None, {}))
+    assert r["descripcion"].startswith("Cuevas de Urdazubi/Urdax. Tipo: Cuevas.")
+    assert r["descripcion"].endswith("Bien de interés cultural.")
+
+
+def test_descripcion_manual_no_se_toca():
+    r = _r(lon=None, lat=None, descripcion="Corta.", descripcion_fuente="manual")
+    completar([r], Cliente(None, {}))
+    assert r["descripcion"] == "Corta."
