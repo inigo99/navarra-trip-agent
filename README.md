@@ -3,7 +3,7 @@
 Agente que diseña escapadas de varios días por Navarra con los datos abiertos del Gobierno de Navarra:
 plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registro de Turismo y la fuente de cada lugar.
 
-> Estado: semana 1 (datos). En construcción.
+> Estado: semana 3 (agente). En construcción.
 
 ## Estructura
 
@@ -39,6 +39,20 @@ Herramientas: `buscar_recursos`, `recursos_cerca`, `alojamientos_cerca`, `restau
   }
 }
 ```
+
+## Agente planificador
+
+LangGraph: el LLM interpreta la petición y redacta el texto; elegir, agrupar por días (k-means
+geográfico), ordenar (ruta circular óptima con tiempos OSRM) y validar lo hace código
+determinista (`planner.py`). El texto solo puede citar ids del plan; si no, se redacta otra vez.
+
+```powershell
+ollama pull qwen2.5:7b
+uv run --extra semantica navarra-plan "3 días en Estella, me gusta el románico y la naturaleza"
+$env:NAVARRA_LLM = "anthropic:claude-haiku-4-5"   # opcional, con ANTHROPIC_API_KEY
+```
+
+El plan completo (con GeoJSON) queda en `data/plan.json`. Necesita OSRM levantado.
 
 ## Rutas (OSRM)
 

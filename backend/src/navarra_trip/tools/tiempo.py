@@ -38,15 +38,14 @@ WMO = {
     96: "tormenta con granizo",
     99: "tormenta con granizo",
 }
-# Umbrales para avisar y proponer planes bajo techo. ponytail: ajustar tras probar planes reales.
-PROB_LLUVIA = 60  # %
+# Umbral para proponer planes bajo techo. Solo la probabilidad no basta: una llovizna de 2 mm al
+# 93 % cambiaba Irati y la Cascada del Cubo por monumentos.
 LLUVIA_MM = 5
 
 
 def mal_tiempo(dia: dict) -> bool:
     return (
-        (dia["prob_lluvia"] or 0) >= PROB_LLUVIA
-        or (dia["lluvia_mm"] or 0) >= LLUVIA_MM
+        (dia["lluvia_mm"] or 0) >= LLUVIA_MM
         or dia["codigo"] >= 65  # lluvia fuerte, nieve, chubascos, tormenta
     )
 

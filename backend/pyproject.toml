@@ -9,6 +9,10 @@ dependencies = [
     "fastmcp>=4.0.10",
     "httpx>=0.27",
     "lancedb>=0.39.0",
+    "langchain>=1.4.3",
+    "langchain-anthropic>=1.7.5",
+    "langchain-ollama>=1.1.0",
+    "langgraph>=1.2.12",
     "pyproj>=3.8.0",
     "shapely>=2.1.2",
 ]
@@ -19,6 +23,7 @@ navarra-normalizar = "navarra_trip.ingest.normaliza:main"
 navarra-mapa = "navarra_trip.ingest.mapa:main"
 navarra-indexar = "navarra_trip.tools.semantica:main"
 navarra-mcp = "navarra_trip.mcp_server:main"
+navarra-plan = "navarra_trip.agente:main"
 
 [project.optional-dependencies]
 semantica = [
