@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 navarra-descargar = "navarra_trip.ingest.ckan:main"
 navarra-normalizar = "navarra_trip.ingest.normaliza:main"
+navarra-mapa = "navarra_trip.ingest.mapa:main"
 
 [dependency-groups]
 dev = [

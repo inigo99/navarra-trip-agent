@@ -1,0 +1,32 @@
+# OSRM con el extracto de Navarra (Geofabrik, ODbL): coche en :5000 y a pie en :5001.
+# Antes: descargar infra/osrm/navarra-latest.osm.pbf (ver README). La 1.ª vez prepara los grafos
+# (unos minutos); las siguientes arranca directamente.
+x-osrm: &osrm
+  image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+  volumes: ["./osrm:/data"]
+
+services:
+  osrm-prep:
+    <<: *osrm
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        for p in car foot; do
+          test -f /data/$$p/navarra-latest.osrm.mldgr && continue
+          mkdir -p /data/$$p && cp /data/navarra-latest.osm.pbf /data/$$p/ &&
+          osrm-extract -p /opt/$$p.lua /data/$$p/navarra-latest.osm.pbf &&
+          osrm-partition /data/$$p/navarra-latest.osrm &&
+          osrm-customize /data/$$p/navarra-latest.osrm || exit 1
+        done
+
+  osrm-coche:
+    <<: *osrm
+    command: osrm-routed --algorithm mld /data/car/navarra-latest.osrm
+    ports: ["5000:5000"]
+    depends_on: {osrm-prep: {condition: service_completed_successfully}}
+
+  osrm-pie:
+    <<: *osrm
+    command: osrm-routed --algorithm mld /data/foot/navarra-latest.osrm
+    ports: ["5001:5000"]
+    depends_on: {osrm-prep: {condition: service_completed_successfully}}
