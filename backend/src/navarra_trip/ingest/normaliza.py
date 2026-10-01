@@ -8,6 +8,7 @@ import httpx
 from pyproj import Transformer
 from shapely.geometry import Point, shape
 
+from navarra_trip.ingest import osm, wikidata
 from navarra_trip.ingest.ckan import RAW
 from navarra_trip.ingest.geocode import Geocoder
 
@@ -135,7 +136,10 @@ def fuera_de_navarra(filas: list[dict], contorno: dict) -> list[str]:
 
 
 def main() -> None:
-    """`navarra-normalizar`: la 1.ª vez geolocaliza (~20-30 min); después todo sale de la caché."""
+    """`navarra-normalizar`: la 1.ª vez geolocaliza (~20-30 min) y consulta Wikidata y OSM (~8 min).
+
+    Después todo sale de la caché.
+    """
     cargar = lambda n: json.loads((RAW / f"{n}.json").read_text(encoding="utf-8"))  # noqa: E731
     mon, esp = cargar("arte-y-monumentos"), cargar("espacios-naturales")
     aloj = cargar("alojamientos-inscritos-en-el-registro-de-turismo-de-navarra")
@@ -151,6 +155,8 @@ def main() -> None:
             }
         finally:
             GEOCACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        wikidata.ejecutar(tablas["recurso"], client)
+        osm.ejecutar(tablas["recurso"], client)
     with duckdb.connect(DB) as con:
         for tabla, filas in tablas.items():
             guardar(con, tabla, filas)
