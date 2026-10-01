@@ -18,8 +18,10 @@ uv sync
 uv run pytest
 uv run navarra-descargar          # 4 conjuntos de la v1 a data/raw/ (con caché)
 uv run navarra-descargar --force  # volver a descargar
+uv run navarra-normalizar         # data/navarra.duckdb (geolocaliza con CartoCiudad, con caché)
 ```
 
 ## Datos
 
 Fuente: [datosabiertos.navarra.es](https://datosabiertos.navarra.es), licencia CC BY 4.0.
+Geolocalización de alojamientos y restaurantes: [CartoCiudad](https://www.cartociudad.es) (IGN), CC BY 4.0.

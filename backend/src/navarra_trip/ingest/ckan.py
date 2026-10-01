@@ -45,6 +45,7 @@ def descargar(client: httpx.Client, nombre: str) -> dict:
         "url_fuente": f"https://datosabiertos.navarra.es/es/dataset/{nombre}",
         "recurso_id": res["id"],
         "actualizado": res.get("last_modified"),
+        "spatial": pkg.get("spatial"),
         "descargado": datetime.now(UTC).isoformat(timespec="seconds"),
         "registros": registros,
     }
