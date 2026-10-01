@@ -16,6 +16,8 @@ plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registr
 cd backend
 uv sync
 uv run pytest
+uv run navarra-descargar          # 4 conjuntos de la v1 a data/raw/ (con caché)
+uv run navarra-descargar --force  # volver a descargar
 ```
 
 ## Datos
