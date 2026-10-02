@@ -30,6 +30,12 @@ def _rec(id, nombre, cat, lat, lon, estilo=None):
         "descripcion_fuente": "wikipedia",
         "horario": None,
         "visitantes_12m": None,
+        "wikidata_id": None,
+        "precio": None,
+        "de_pago": None,
+        "web": None,
+        "revisado": None,
+        "cerrado": False,
         "url_fuente": "u",
     }
 
@@ -257,3 +263,21 @@ def test_ordenar_quita_lo_que_mas_tiempo_ahorra(con):
     filas = [r | {"puntos": 0.85 if r["id"] == "mon:lejos" else 0.8} for r in filas]
     d = planner.ordenar(OLITE, filas, req, matriz, ruta)
     assert sorted(p["id"] for p in d["paradas"]) == ["mon:e0", "mon:e1"]
+
+
+def test_candidatos_sin_duplicados(con):
+    # mismo sitio con dos fichas (como Foz de Arbaiun y su mirador): solo entra una
+    dup = _filas(con, "SELECT * FROM recurso WHERE id = 'mon:e0'", [])[0]
+    filas = _filas(con, "SELECT * FROM recurso", []) + [dup | {"id": "esp:mirador"}]
+    guardar(con, "recurso", filas)
+    req = Requisitos(dias=2, base="Olite", intereses=["románica"])
+    ids = [r["id"] for r in planner.candidatos(con, req, OLITE, planner.similitud_texto(con))]
+    assert len({"mon:e0", "esp:mirador"} & set(ids)) == 1
+
+
+def test_candidatos_sin_cerrados(con):
+    filas = _filas(con, "SELECT * FROM recurso", [])
+    guardar(con, "recurso", [r | {"cerrado": r["id"] == "mon:e0"} for r in filas])
+    req = Requisitos(dias=2, base="Olite", intereses=["románica"])
+    ids = [r["id"] for r in planner.candidatos(con, req, OLITE, planner.similitud_texto(con))]
+    assert "mon:e0" not in ids and "mon:e1" in ids

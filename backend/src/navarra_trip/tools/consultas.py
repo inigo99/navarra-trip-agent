@@ -61,9 +61,9 @@ def _cerca(
 
 
 _COLS_RECURSO = (
-    "id, nombre, categoria, subcategorias, estilo, municipio, zona, lat, lon, "
-    f"left(descripcion, {RESUMEN}) AS descripcion, descripcion_fuente, horario, visitantes_12m, "
-    "url_fuente"
+    "id, nombre, categoria, subcategorias, estilo, municipio, zona, lat, lon, wikidata_id, "
+    f"left(descripcion, {RESUMEN}) AS descripcion, descripcion_fuente, horario, precio, de_pago, "
+    "web, revisado, cerrado, visitantes_12m, url_fuente"
 )
 
 

@@ -89,3 +89,14 @@ def test_oficinas_desde_geojson():
     }
     o = extra.oficinas(raw)[0]
     assert (o["id"], o["telefono"], o["lon"], o["lat"]) == ("ofi:1", "948592386", -1.61, 43.14)
+
+
+def test_zona_y_campos_manuales():
+    rs = [
+        {"id": "a", "zona": "Pirineo", "lon": -1.1, "lat": 42.9},
+        {"id": "b", "zona": "Ribera", "lon": -1.6, "lat": 42.1},
+        {"id": "c", "zona": None, "lon": -1.12, "lat": 42.95, "horario": None, "de_pago": None},
+    ]
+    assert extra.completar_zonas(rs) == 1 and rs[2]["zona"] == "Pirineo"
+    extra.aplicar_manual(rs, {"c": {"horario": "Tu-Su 10:00-14:00", "de_pago": "sí"}})
+    assert rs[2]["horario"] == "Tu-Su 10:00-14:00" and rs[2]["de_pago"] is True

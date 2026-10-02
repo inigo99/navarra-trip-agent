@@ -105,6 +105,7 @@ def candidatos(con, req: Requisitos, base: dict, sim: Similitud) -> list[dict]:
     cerca = consultas.recursos_cerca(
         con, base["lat"], base["lon"], RADIO_KM[req.transporte], limite=1000
     )
+    cerca = [r for r in cerca if not r.get("cerrado")]  # cerrados temporalmente
     n = (req.dias or 1) * PARADAS[req.ritmo] * 2
     destacados = sorted(cerca, key=lambda r: (r["descripcion_fuente"] != "wikipedia", r["km"]))
     por_id = {r["id"]: r for r in cerca}
@@ -113,12 +114,23 @@ def candidatos(con, req: Requisitos, base: dict, sim: Similitud) -> list[dict]:
         s = sim(interes)
         rankings.append(sorted(((s.get(i, 0.0), i) for i in por_id), reverse=True))
     out, vistos = [], set()
+
+    def nuevo(r: dict) -> bool:
+        """Sin duplicados: 'Foz de Arbaiun' y 'Mirador de la Foz de Arbaiun' comparten Wikidata;
+        'Molino' y 'Monasterio de Urdax', coordenadas."""
+        claves = {r["id"], (round(r["lat"], 4), round(r["lon"], 4))}
+        if r.get("wikidata_id"):
+            claves.add(r["wikidata_id"])
+        if claves & vistos:
+            return False
+        vistos.update(claves)
+        return True
+
     for fila in itertools.zip_longest(*rankings):
         for puntos, id in filter(None, fila):
-            if id not in vistos and puntos > 0 and len(out) < n:
-                vistos.add(id)
+            if puntos > 0 and len(out) < n and nuevo(por_id[id]):
                 out.append(por_id[id] | {"puntos": puntos})
-    relleno = (r | {"puntos": 0.01} for r in destacados if r["id"] not in vistos)
+    relleno = (r | {"puntos": 0.01} for r in destacados if nuevo(r))
     return out + list(itertools.islice(relleno, n - len(out)))
 
 

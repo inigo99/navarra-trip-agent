@@ -21,6 +21,12 @@ REC = {
     "descripcion_fuente": "wikipedia",
     "horario": None,
     "visitantes_12m": None,
+    "wikidata_id": None,
+    "precio": None,
+    "de_pago": None,
+    "web": None,
+    "revisado": None,
+    "cerrado": False,
     "url_fuente": "https://datosabiertos.navarra.es/x",
 }
 

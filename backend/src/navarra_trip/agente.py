@@ -48,6 +48,7 @@ del JSON. Reglas:
   fin): no calcules ninguna.
 - No añadas lugares, horarios, precios ni teléfonos que no estén. horario null = "consultar
   horario". Si hay aviso de tiempo o avisos, menciónalos.
+- Al final, una línea: horarios y precios pueden cambiar; confírmalos en la web de cada lugar.
 - Markdown: un apartado por día; breve (2-3 frases por parada)."""
 
 FALTA = {
@@ -255,6 +256,8 @@ def _para_llm(plan: dict) -> dict:
             "trayecto_min",
             "descripcion",
             "horario",
+            "precio",
+            "web",
             "visitantes_12m",
         )
         out = {k: r.get(k) for k in claves}

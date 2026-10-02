@@ -100,7 +100,7 @@ def _m(q=None, lon=None, lat=None, d=None):
 
 def test_enriquecer_de_principio_a_fin():
     recursos = _recursos()
-    manual = {"esp:4310": _m("Q63301905"), "esp:5871": _m(None, -1.10, 43.0, "Cascada de 20 m.")}
+    manual = {"esp:4310": _m("Q63301905"), "esp:5871": _m("-", -1.10, 43.0, "Cascada de 20 m.")}
     cache = {}
     revision = enriquecer(
         recursos, Cliente(httpx.Client(transport=httpx.MockTransport(_api)), cache, pausa=0), manual
@@ -120,10 +120,18 @@ def test_enriquecer_de_principio_a_fin():
     enriquecer(_recursos(), Cliente(None, cache), manual)
 
 
+def test_manual_sin_q_deja_el_emparejado_automatico():
+    # una fila solo con horario no debe borrar el enlace a Wikidata
+    recursos = _recursos()[:1]
+    cli = Cliente(httpx.Client(transport=httpx.MockTransport(_api)), {}, pausa=0)
+    enriquecer(recursos, cli, {"mon:1": _m(None)})
+    assert recursos[0]["wikidata_id"] == "Q112738"
+
+
 def test_manual_csv_es_coherente():
     manual = leer_manual()
     assert len(manual) > 50
-    assert all(m["q"] is None or m["q"].startswith("Q") for m in manual.values())
+    assert all(m["q"] in (None, "-") or m["q"].startswith("Q") for m in manual.values())
     assert manual["mon:3153"]["q"] == "Q1934670"
     assert manual["mon:5414"]["descripcion"].startswith("El Castillo de Cortes")
     lon, lat = manual["esp:5871"]["lon"], manual["esp:5871"]["lat"]

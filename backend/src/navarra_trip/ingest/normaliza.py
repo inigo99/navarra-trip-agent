@@ -172,8 +172,11 @@ def main() -> None:
     with httpx.Client(timeout=30, headers={"User-Agent": "navarra-trip-agent"}) as client:
         geo = Geocoder(client, cache)
         try:
+            manual = wikidata.leer_manual()
             tablas = {
-                "recurso": recursos(mon, esp),
+                "recurso": [
+                    r for r in recursos(mon, esp) if not manual.get(r["id"], {}).get("quitar")
+                ],
                 "alojamiento": establecimientos(aloj, "aloj", geo)
                 + establecimientos(agro, "aloj", geo),
                 "restaurante": establecimientos(rest, "rest", geo),
@@ -185,6 +188,8 @@ def main() -> None:
             GEOCACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
         wikidata.ejecutar(tablas["recurso"], client)
         osm.ejecutar(tablas["recurso"], client)
+    extra.aplicar_manual(tablas["recurso"], manual)
+    print(f"zona         {extra.completar_zonas(tablas['recurso'])} recursos con la más cercana")
     tablas["oficina"] = extra.oficinas(cargar(extra_ckan.OFICINAS))
     tablas["ave"] = extra.aves(cargar("turismo-ornitol-gico"))
     tablas["afluencia"] = extra.afluencia(

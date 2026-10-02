@@ -83,7 +83,11 @@ def emparejar(recurso: dict, candidatos: list[dict]) -> tuple[str | None, list[t
 
 
 def leer_manual(ruta: Path = MANUAL) -> dict[str, dict]:
-    """id -> {q, lon, lat, descripcion}. Vacío = se mantiene lo de la fuente."""
+    """wikidata_id: Q…, "-" (sin elemento) o vacío (emparejado automático).
+
+    id -> {q, lon, lat, descripcion, horario, precio, web, de_pago, zona, quitar, revisado}.
+    Vacío = se mantiene lo de la fuente. quitar = sí descarta el recurso (duplicados); el resto
+    lo aplica extra.aplicar_manual() tras OSM."""
     with ruta.open(encoding="utf-8") as f:
         return {
             r["id"]: {
@@ -91,6 +95,19 @@ def leer_manual(ruta: Path = MANUAL) -> dict[str, dict]:
                 "lon": float(r["lon"]) if r["lon"] else None,
                 "lat": float(r["lat"]) if r["lat"] else None,
                 "descripcion": r["descripcion"] or None,
+                **{
+                    k: r.get(k) or None
+                    for k in (
+                        "horario",
+                        "precio",
+                        "web",
+                        "de_pago",
+                        "zona",
+                        "quitar",
+                        "cerrado",
+                        "revisado",
+                    )
+                },
             }
             for r in csv.DictReader(f)
         }
@@ -196,10 +213,11 @@ def enriquecer(recursos: list[dict], cli: Cliente, manual: dict[str, dict]) -> l
     """
     revision = []
     for r in recursos:
-        if m := manual.get(r["id"]):
-            r["wikidata_id"] = m["q"]
-            if m["lon"] is not None:
-                r["lon"], r["lat"] = m["lon"], m["lat"]
+        m = manual.get(r["id"], {})
+        if m.get("lon") is not None:
+            r["lon"], r["lat"] = m["lon"], m["lat"]
+        if m.get("q"):  # "-" = revisado a mano, no tiene elemento; vacío = emparejado automático
+            r["wikidata_id"] = None if m["q"] == "-" else m["q"]
             continue
         if r["lon"] is None:
             r["wikidata_id"] = None

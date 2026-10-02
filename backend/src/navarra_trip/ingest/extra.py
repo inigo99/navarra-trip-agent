@@ -12,6 +12,7 @@ from pyproj import Transformer
 from navarra_trip.ingest.wikidata import Cliente
 
 AFLUENCIA_MANUAL = Path(__file__).with_name("afluencia_recursos.csv")
+OFICINAS_MANUAL = Path(__file__).with_name("oficinas_manual.csv")
 WFS_MUNICIPIOS = "https://idena.navarra.es/ogc/wfs"
 _A_UTM = Transformer.from_crs("EPSG:4326", "EPSG:25830", always_xy=True)
 
@@ -35,7 +36,8 @@ def actividades_extra(raw_reg: dict) -> dict:
     }
 
 
-def oficinas(raw: dict) -> list[dict]:
+def oficinas(raw: dict, manual: Path = OFICINAS_MANUAL) -> list[dict]:
+    """Las 9 de la red del Gobierno (IDENA) + las municipales de oficinas_manual.csv."""
     filas = []
     for i, f in enumerate(raw["registros"], 1):
         p = f["properties"]
@@ -56,6 +58,14 @@ def oficinas(raw: dict) -> list[dict]:
                 "licencia": raw["licencia"],
             }
         )
+    with manual.open(encoding="utf-8") as f:
+        for i, r in enumerate(csv.DictReader(f), 1):
+            filas.append(
+                {k: r[k] or None for k in ("nombre", "zona", "direccion", "localidad")}
+                | {k: r[k] or None for k in ("telefono", "email", "web")}
+                | {"id": f"ofi:m{i}", "lon": float(r["lon"]), "lat": float(r["lat"])}
+                | {"url_fuente": r["fuente"], "licencia": "revisión manual"}
+            )
     return filas
 
 
@@ -137,6 +147,34 @@ def municipio(cli: Cliente, lon: float, lat: float) -> str | None:
         cql_filter=f"CONTAINS(the_geom,POINT({x:.0f} {y:.0f}))",
     )
     return j["features"][0]["properties"]["MUNICIPIO"] if j["features"] else None
+
+
+def aplicar_manual(recursos: list[dict], manual: dict[str, dict]) -> None:
+    """Horario, precio, web, pago y zona de recursos_manual.csv: mandan sobre OSM y la fuente.
+    revisado (AAAA-MM) dice cuándo se comprobaron horario y precio, que caducan."""
+    for r in recursos:
+        m = manual.get(r["id"], {})
+        r.setdefault("precio", None)
+        r.setdefault("revisado", None)
+        for k in ("horario", "precio", "web", "zona", "revisado"):
+            if m.get(k):
+                r[k] = m[k]
+        r["cerrado"] = bool(m.get("cerrado"))  # temporalmente: el planificador no lo propone
+        if m.get("de_pago"):
+            r["de_pago"] = m["de_pago"].strip().lower() in ("si", "sí", "true", "1")
+
+
+def completar_zonas(recursos: list[dict]) -> int:
+    """Zona turística del recurso con zona más cercano (13 espacios no la traen)."""
+    con_zona = [r for r in recursos if r["zona"] and r["lon"] is not None]
+    n = 0
+    for r in recursos:
+        if not r["zona"] and r["lon"] is not None:
+            r["zona"] = min(
+                con_zona, key=lambda o: (o["lon"] - r["lon"]) ** 2 + (o["lat"] - r["lat"]) ** 2
+            )["zona"]
+            n += 1
+    return n
 
 
 def completar_municipios(recursos: list[dict], cli: Cliente) -> int:
