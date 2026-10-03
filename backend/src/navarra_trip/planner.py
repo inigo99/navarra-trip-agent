@@ -34,7 +34,8 @@ MAX_DIAS = 7
 MAX_TRAYECTO = {"relajado": 120, "normal": 180, "intenso": 270}  # minutos al día
 RADIO_KM = {"coche": 30, "pie": 4}  # con 40, Estella sumaba Lekunberri: días en zigzag
 RADIO_COMIDA_KM = {"coche": 10, "pie": 1.5}
-DURACION = {"monumento": 45, "natural": 90, "ruta": 180}  # si el recurso no trae duracion_min
+# si el recurso no trae duracion_min
+DURACION = {"monumento": 45, "natural": 90, "ruta": 180, "bodega": 90}
 INICIO = 10 * 60
 # Hasta qué hora se llena el día: con un n.º fijo de paradas, muchos días volvían a las 15:00
 FIN = {"relajado": 17 * 60 + 30, "normal": 19 * 60, "intenso": 20 * 60}
@@ -163,16 +164,21 @@ def similitud_por_defecto(con) -> Similitud:
         return similitud_texto(con)
 
 
-def candidatos(con, req: Requisitos, base: dict, sim: Similitud) -> list[dict]:
+def candidatos(
+    con, req: Requisitos, base: dict, sim: Similitud, excluir: frozenset = frozenset()
+) -> list[dict]:
     """Recursos alrededor de la base, alternando el ranking de cada interés para que no se los
     lleve todos el primero. Si no llegan, se completa con los más destacados (los que tienen
     artículo en Wikipedia) y cercanos."""
     cerca = consultas.recursos_cerca(
         con, base["lat"], base["lon"], RADIO_KM[req.transporte], limite=1000
     )
-    cerca = [r for r in cerca if not r.get("cerrado")]  # cerrados temporalmente
+    # cerrados temporalmente y los que el usuario quitó al ajustar el plan
+    cerca = [r for r in cerca if not r.get("cerrado") and r["id"] not in excluir]
     if not quiere_senderos(req):
         cerca = [r for r in cerca if r["categoria"] != "ruta"]
+    if not quiere_vino(req):  # OSM no dice si se visitan: solo si se piden
+        cerca = [r for r in cerca if r["categoria"] != "bodega"]
     n = (req.dias or 1) * PARADAS[req.ritmo] * 3  # con *2 se agotaban y sobraba tarde
     destacados = sorted(cerca, key=lambda r: (r["descripcion_fuente"] != "wikipedia", r["km"]))
     por_id = {r["id"]: r for r in cerca}
@@ -316,6 +322,14 @@ def ronda(con, base: dict, usados: set[str]) -> list[dict]:
     return grupo
 
 
+VINO = ("vin", "bodeg", "enotur", "wine", "ardo", "upategi")  # es, en, fr, eu (ardoa)
+
+
+def quiere_vino(req: Requisitos) -> bool:
+    palabras = consultas._sin_tildes(" ".join(req.intereses)).split()
+    return any(w.startswith(VINO) for w in palabras)
+
+
 def quiere_senderos(req: Requisitos) -> bool:
     t = consultas._sin_tildes(" ".join(req.intereses))
     return any(p in t for p in SENDERISMO)
@@ -438,7 +452,7 @@ def agrupar(
 
     for n, p in enumerate(prevision_dias):
         ultimo = n == len(prevision_dias) - 1
-        techo = [i for i in libres if cands[i - 1]["categoria"] == "monumento"]
+        techo = [i for i in libres if cands[i - 1]["categoria"] in ("monumento", "bodega")]
         # semilla del día: por turnos, del interés n-ésimo (foces, monasterios, castillo…). Con la
         # mejor puntuación a secas, las foces (peor puntuadas) nunca abrían día y, a más de 25
         # min de desvío de los demás grupos, no entraba ni Arbayún ni Benasa

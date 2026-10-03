@@ -43,8 +43,8 @@ def buscar_recursos(
 
     - consulta: texto libre por significado ("castillos medievales", "cascadas para ir con
       niños"). Si se da, ordena por similitud.
-    - categoria: 'monumento', 'natural' o 'ruta' (senderos homologados con duración y
-      desnivel). municipio y estilo ('románico', 'gótico'…) filtran
+    - categoria: 'monumento', 'natural', 'bodega' (OSM) o 'ruta' (senderos homologados con
+      duración y desnivel). municipio y estilo ('románico', 'gótico'…) filtran
       sin tildes. Sin consulta, devuelve los que cumplen los filtros por orden alfabético.
     """
     if consulta and not (municipio or estilo):

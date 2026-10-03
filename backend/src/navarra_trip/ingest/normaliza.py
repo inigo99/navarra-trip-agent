@@ -9,7 +9,7 @@ import httpx
 from pyproj import Transformer
 from shapely.geometry import Point, shape
 
-from navarra_trip.ingest import bares, extra, osm, senderos, wikidata
+from navarra_trip.ingest import bares, bodegas, extra, osm, senderos, wikidata
 from navarra_trip.ingest import ckan as extra_ckan
 from navarra_trip.ingest.ckan import RAW
 from navarra_trip.ingest.geocode import Geocoder
@@ -191,13 +191,16 @@ def main() -> None:
                 "restaurante": establecimientos(rest, "rest", geo),
                 "actividad": establecimientos(act, "act", geo),
             }
-            n = extra.completar_municipios(tablas["recurso"], Cliente(client, cache))
+            bods = bodegas.descargar(client)  # aparte: no pasan por Wikidata ni OSM (ya son OSM)
+            n = extra.completar_municipios(tablas["recurso"] + bods, Cliente(client, cache))
             print(f"municipio    {n} recursos completados con los límites de IDENA")
         finally:
             GEOCACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
         wikidata.ejecutar(tablas["recurso"], client)
         osm.ejecutar(tablas["recurso"], client)
-        tablas["recurso"] = _mismas_claves(tablas["recurso"] + senderos.ejecutar(client))
+        tablas["recurso"] = _mismas_claves(
+            tablas["recurso"] + senderos.ejecutar(client) + bodegas.completar(bods)
+        )
         tablas["bar"] = bares.ejecutar(client)
     extra.aplicar_manual(tablas["recurso"], manual)
     print(f"zona         {extra.completar_zonas(tablas['recurso'])} recursos con la más cercana")

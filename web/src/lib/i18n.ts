@@ -1,0 +1,129 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
+
+const es = {
+  titulo: "Planificador de viajes por Navarra",
+  subtitulo: "Con datos abiertos: Turismo de Navarra, IDENA, Wikipedia y OpenStreetMap.",
+  ejemplo: "3 días en Estella, románico y naturaleza, a ritmo tranquilo",
+  planificar: "Planificar",
+  responder: "Responder",
+  nuevo: "Nuevo plan",
+  pasos: {
+    interpretar: "Entendiendo la petición",
+    candidatos: "Buscando lugares",
+    tiempo: "Consultando el tiempo",
+    agrupar: "Repartiendo por días",
+    ordenar: "Calculando rutas",
+    extras: "Eligiendo comidas y alojamiento",
+    redactar: "Escribiendo el itinerario",
+    comprobar: "Comprobando",
+  } as Record<string, string>,
+  gpx: "Descargar GPX",
+  pdf: "Guardar PDF",
+  compartir: "Copiar enlace",
+  copiado: "Enlace copiado",
+  ajustar: "Ajustar el plan",
+  cambio: "Qué quieres cambiar (p. ej. «más tranquilo», «añade bodegas»)",
+  quitar: "Quitar",
+  quitados: "Se quitarán",
+  rehacer: "Rehacer plan",
+  detalle: "Detalle",
+  cerrar: "Cerrar",
+  horario: "Horario",
+  precio: "Precio",
+  web: "Web",
+  fuente: "Fuente",
+  noEncontrado: "Plan no encontrado.",
+  ajustadoDe: "Ajuste de",
+  cargando: "Cargando…",
+};
+type Textos = typeof es;
+
+const en: Textos = {
+  titulo: "Navarre trip planner",
+  subtitulo: "Built on open data: Navarre Tourism, IDENA, Wikipedia and OpenStreetMap.",
+  ejemplo: "3 days in Estella, Romanesque and nature, relaxed pace",
+  planificar: "Plan",
+  responder: "Answer",
+  nuevo: "New plan",
+  pasos: {
+    interpretar: "Understanding the request",
+    candidatos: "Finding places",
+    tiempo: "Checking the weather",
+    agrupar: "Splitting into days",
+    ordenar: "Computing routes",
+    extras: "Choosing meals and lodging",
+    redactar: "Writing the itinerary",
+    comprobar: "Checking",
+  },
+  gpx: "Download GPX",
+  pdf: "Save PDF",
+  compartir: "Copy link",
+  copiado: "Link copied",
+  ajustar: "Adjust the plan",
+  cambio: "What to change (e.g. “slower pace”, “add wineries”)",
+  quitar: "Remove",
+  quitados: "Will be removed",
+  rehacer: "Redo plan",
+  detalle: "Details",
+  cerrar: "Close",
+  horario: "Opening hours",
+  precio: "Price",
+  web: "Website",
+  fuente: "Source",
+  noEncontrado: "Plan not found.",
+  ajustadoDe: "Adjusted from",
+  cargando: "Loading…",
+};
+
+const fr: Textos = {
+  titulo: "Planificateur de voyages en Navarre",
+  subtitulo: "Données ouvertes : Tourisme de Navarre, IDENA, Wikipédia et OpenStreetMap.",
+  ejemplo: "3 jours à Estella, roman et nature, rythme tranquille",
+  planificar: "Planifier",
+  responder: "Répondre",
+  nuevo: "Nouveau plan",
+  pasos: {
+    interpretar: "Analyse de la demande",
+    candidatos: "Recherche de lieux",
+    tiempo: "Consultation de la météo",
+    agrupar: "Répartition par jours",
+    ordenar: "Calcul des itinéraires",
+    extras: "Choix des repas et de l’hébergement",
+    redactar: "Rédaction de l’itinéraire",
+    comprobar: "Vérification",
+  },
+  gpx: "Télécharger GPX",
+  pdf: "Enregistrer en PDF",
+  compartir: "Copier le lien",
+  copiado: "Lien copié",
+  ajustar: "Ajuster le plan",
+  cambio: "Que changer (p. ex. « plus tranquille », « ajoute des caves »)",
+  quitar: "Retirer",
+  quitados: "Seront retirés",
+  rehacer: "Refaire le plan",
+  detalle: "Détails",
+  cerrar: "Fermer",
+  horario: "Horaires",
+  precio: "Prix",
+  web: "Site web",
+  fuente: "Source",
+  noEncontrado: "Plan introuvable.",
+  ajustadoDe: "Ajusté depuis",
+  cargando: "Chargement…",
+};
+
+const TEXTOS: Record<string, Textos> = { es, en, fr };
+const idioma = () => navigator.language.slice(0, 2);
+
+/** Textos de la interfaz en el idioma del navegador (español si no es en/fr). En el servidor,
+ * español; el navegador lo corrige al hidratar. */
+export function useT(): Textos {
+  const i = useSyncExternalStore(
+    () => () => {},
+    idioma,
+    () => "es",
+  );
+  return TEXTOS[i] ?? es;
+}

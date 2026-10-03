@@ -77,6 +77,7 @@ NO_ENCONTRADO = {
 
 class Estado(TypedDict, total=False):
     peticion: str
+    excluir: list[str]  # ids quitados al ajustar un plan
     requisitos: Requisitos
     pregunta: str
     base: dict
@@ -138,7 +139,8 @@ def construir(
                 f"Cerca de {base['nombre']} ({planner.RADIO_KM[req.transporte]} km, "
                 f"{req.transporte}) no hay nada destacado de «{i}»: lo más parecido queda lejos."
             )
-        return {"candidatos": planner.candidatos(con, req, base, similitud)}
+        fuera = frozenset(s.get("excluir") or ())
+        return {"candidatos": planner.candidatos(con, req, base, similitud, fuera)}
 
     def prevision_(s: Estado) -> Estado:
         try:
@@ -166,7 +168,7 @@ def construir(
         return {"dias": dias}
 
     def extras(s: Estado) -> Estado:
-        req, usados, dias = s["requisitos"], set(), []
+        req, usados, dias = s["requisitos"], set(s.get("excluir") or ()), []
         pintxos, sin_ronda = planner.quiere_pintxos(req), False
         pedidos = planner.restaurantes_pedidos(con, s["base"], s["peticion"])
         for i, (d, p) in enumerate(zip(s["dias"], s["prevision"], strict=True)):
@@ -192,6 +194,8 @@ def construir(
                         "ronda de pintxos: se propone cenar en un restaurante."
                     )
             dias.append(d | {"dia": i + 1, "fecha": fecha, "tiempo": p, "comida": c} | noche)
+        if any(p["categoria"] == "bodega" for d in dias for p in d["paradas"]):
+            avisos.append("Las bodegas suelen pedir reserva para visitarlas: confírmalo en su web.")
         plan = {
             "requisitos": req.model_dump(mode="json"),
             "base": s["base"],
@@ -199,6 +203,7 @@ def construir(
             "alojamientos": planner.alojamientos(con, s["base"], req) if req.dias > 1 else [],
             "dias": dias,
             "avisos": list(avisos),
+            "excluidos": s.get("excluir") or [],
             # para depurar y evaluar (S4): qué se consideró y con qué puntuación
             "candidatos": [
                 {"id": r["id"], "nombre": r["nombre"], "puntos": round(r["puntos"], 3)}
@@ -242,7 +247,13 @@ def construir(
         if faltan and s["intentos"] < INTENTOS:
             return {"faltan": faltan}
         avisos = s.get("avisos_txt") or plan["avisos"]
-        return {"faltan": [], "texto": componer(plan, s["frases"], avisos)}
+        texto = componer(plan, s["frases"], avisos)
+        # para la web: frases y avisos traducidos van con el plan (pinta el itinerario ella)
+        return {
+            "faltan": [],
+            "texto": texto,
+            "plan": plan | {"frases": s["frases"], "avisos_txt": avisos},
+        }
 
     g = StateGraph(Estado)
     for nombre, f in [

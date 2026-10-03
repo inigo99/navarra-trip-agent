@@ -3,12 +3,12 @@
 Agente que diseña escapadas de varios días por Navarra con los datos abiertos del Gobierno de Navarra:
 plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registro de Turismo y la fuente de cada lugar.
 
-> Estado: semanas 1-4 hechas (datos, herramientas + MCP, agente y evaluación). Siguiente: web (S5).
+> Estado: semanas 1-5 hechas (datos, herramientas + MCP, agente, evaluación y web). Siguiente: despliegue (S6).
 
 ## Estructura
 
 - `backend/`: Python 3.12 + uv (ingesta, herramientas, agente, servidor MCP y API).
-- `web/`: Next.js + TypeScript (llega en la semana 5).
+- `web/`: Next.js 16 + TypeScript + Tailwind + MapLibre.
 
 ## Desarrollo
 
@@ -63,6 +63,17 @@ $env:NAVARRA_LLM = "anthropic:claude-haiku-4-5"   # opcional, con ANTHROPIC_API_
 
 El plan completo (con GeoJSON) queda en `data/plan.json`. Necesita OSRM levantado.
 
+## Web (`web/`)
+
+API FastAPI con el progreso del agente por SSE y una web Next.js con el itinerario, el mapa
+(MapLibre + OpenFreeMap), la ficha de cada lugar, GPX, PDF, enlace para compartir y ajuste del
+plan (quitar lugares o pedir cambios). Interfaz en español, inglés o francés.
+
+```bash
+cd backend && uv run --extra semantica navarra-api   # http://localhost:8000/docs
+cd web && npm install && npm run dev                 # http://localhost:3000
+```
+
 ## Evaluación
 
 `backend/eval/peticiones.csv`: 87 peticiones (60 normales en es/en/fr, 15 imposibles o ambiguas
@@ -110,4 +121,4 @@ afluencia a recursos turísticos y oficinas de turismo (IDENA). Senderos homolog
 de Deportes de Montaña y Escalada vía [IDENA](https://idena.navarra.es), CC BY 4.0. Descripciones: Wikipedia (CC BY-SA)
 y Wikidata (CC0); lugares que faltan en los conjuntos oficiales, en `recursos_extra.csv` con su fuente.
 Geolocalización de alojamientos y restaurantes: [CartoCiudad](https://www.cartociudad.es) (IGN), CC BY 4.0.
-Rutas, mapa, cimas y bares: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright), ODbL.
+Rutas, mapa, cimas, bares y bodegas: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright), ODbL.
