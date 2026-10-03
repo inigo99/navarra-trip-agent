@@ -12,6 +12,7 @@ from pyproj import Transformer
 from navarra_trip.ingest.wikidata import Cliente
 
 AFLUENCIA_MANUAL = Path(__file__).with_name("afluencia_recursos.csv")
+RECURSOS_EXTRA = Path(__file__).with_name("recursos_extra.csv")
 OFICINAS_MANUAL = Path(__file__).with_name("oficinas_manual.csv")
 WFS_MUNICIPIOS = "https://idena.navarra.es/ogc/wfs"
 _A_UTM = Transformer.from_crs("EPSG:4326", "EPSG:25830", always_xy=True)
@@ -149,8 +150,46 @@ def municipio(cli: Cliente, lon: float, lat: float) -> str | None:
     return j["features"][0]["properties"]["MUNICIPIO"] if j["features"] else None
 
 
+DURACION = {  # minutos de visita por subcategoría; con varias, la mayor
+    "Iglesias y ermitas": 30,
+    "Castillos/Palacios": 60,
+    "Restos arqueológicos": 45,
+    "Monasterios": 60,
+    "Obras de ingeniería": 20,
+    "Monumentos megalíticos": 20,
+    "Edificios públicos de interés": 30,
+    "Catedrales": 60,
+    "Patrimonio etnográfico": 30,
+    "Escultura": 15,
+    "Molinos": 30,
+    "Conjuntos amurallados": 60,
+    "Conjuntos históricos": 90,
+    "Plazas": 20,
+    "Orfebrería": 30,
+    "Hórreos": 15,
+    "Miradores": 20,
+    "Valles": 120,
+    "Parques y jardines": 45,
+    "Bosques": 120,
+    "Lagos y embalses": 60,
+    "Montes y sierras": 120,
+    "Vía verde / Camino natural": 120,
+    "Parques naturales": 150,
+    "Cuevas": 75,
+    "Nacederos y ríos": 90,
+    "Cañones": 90,
+}
+DURACION_OTROS = {"monumento": 30, "natural": 60}
+
+
+def duracion(r: dict) -> int:
+    por_tipo = max((DURACION.get(s, 0) for s in r.get("subcategorias") or []), default=0)
+    return por_tipo or DURACION_OTROS.get(r.get("categoria"), 45)
+
+
 def aplicar_manual(recursos: list[dict], manual: dict[str, dict]) -> None:
-    """Horario, precio, web, pago y zona de recursos_manual.csv: mandan sobre OSM y la fuente.
+    """Horario, precio, web, pago, zona y duración de recursos_manual.csv: mandan sobre OSM y la
+    fuente.
     revisado (AAAA-MM) dice cuándo se comprobaron horario y precio, que caducan."""
     for r in recursos:
         m = manual.get(r["id"], {})
@@ -160,6 +199,10 @@ def aplicar_manual(recursos: list[dict], manual: dict[str, dict]) -> None:
             if m.get(k):
                 r[k] = m[k]
         r["cerrado"] = bool(m.get("cerrado"))  # temporalmente: el planificador no lo propone
+        # minutos de visita: la revisión manda; las rutas traen la suya (MIDE)
+        r["duracion_min"] = (
+            int(m["duracion"]) if m.get("duracion") else (r.get("duracion_min") or duracion(r))
+        )
         if m.get("de_pago"):
             r["de_pago"] = m["de_pago"].strip().lower() in ("si", "sí", "true", "1")
 
@@ -188,3 +231,25 @@ def completar_municipios(recursos: list[dict], cli: Cliente) -> int:
             r["municipio"] = m
             n += 1
     return n
+
+
+def recursos_extra(ruta: Path = RECURSOS_EXTRA) -> list[dict]:
+    """Lugares que no están en los conjuntos oficiales (Foz de Benasa), con la fuente de cada
+    uno. Pasan por el mismo enriquecido (Wikidata, OSM, municipio y zona) que el resto."""
+    with ruta.open(encoding="utf-8") as f:
+        return [
+            {
+                "id": r["id"],
+                "nombre": r["nombre"],
+                "categoria": r["categoria"],
+                "subcategorias": r["subcategorias"].split("|"),
+                "estilo": None,
+                "municipio": None,  # lo pone completar_municipios con los límites de IDENA
+                "zona": None,
+                "lon": float(r["lon"]),
+                "lat": float(r["lat"]),
+                "url_fuente": r["url_fuente"],
+                "licencia": r["licencia"],
+            }
+            for r in csv.DictReader(f)
+        ]

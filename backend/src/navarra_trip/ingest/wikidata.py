@@ -85,7 +85,8 @@ def emparejar(recurso: dict, candidatos: list[dict]) -> tuple[str | None, list[t
 def leer_manual(ruta: Path = MANUAL) -> dict[str, dict]:
     """wikidata_id: Q…, "-" (sin elemento) o vacío (emparejado automático).
 
-    id -> {q, lon, lat, descripcion, horario, precio, web, de_pago, zona, quitar, revisado}.
+    id -> {q, lon, lat, descripcion, horario, precio, web, de_pago, zona, quitar, revisado,
+    duracion}.
     Vacío = se mantiene lo de la fuente. quitar = sí descarta el recurso (duplicados); el resto
     lo aplica extra.aplicar_manual() tras OSM."""
     with ruta.open(encoding="utf-8") as f:
@@ -106,6 +107,7 @@ def leer_manual(ruta: Path = MANUAL) -> dict[str, dict]:
                         "quitar",
                         "cerrado",
                         "revisado",
+                        "duracion",
                     )
                 },
             }

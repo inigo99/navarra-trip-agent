@@ -15,26 +15,39 @@ import lancedb
 
 from navarra_trip.tools.consultas import _COLS_RECURSO, _filas, conectar
 
-# small: 384 dim., ~120 M parámetros, va bien en CPU. Para comparar: NAVARRA_EMBEDDINGS=
-# intfloat/multilingual-e5-base. Cada modelo tiene su tabla: consulta e índice siempre casan.
-MODELO = os.environ.get("NAVARRA_EMBEDDINGS", "intfloat/multilingual-e5-small")
+# base (768 dim., ~280 M parámetros) frente a small en `navarra-eval embeddings`: recall@5 0,70
+# frente a 0,59 y MRR 0,90 frente a 0,83. Cada modelo tiene su tabla: consulta e índice casan.
+MODELO = os.environ.get("NAVARRA_EMBEDDINGS", "intfloat/multilingual-e5-base")
 LANCE = Path("data/lancedb")
-TABLA = "recursos_" + MODELO.rsplit("/", 1)[-1]
+
+
+def tabla_de(modelo: str) -> str:
+    return "recursos_" + modelo.rsplit("/", 1)[-1]
+
+
+TABLA = tabla_de(MODELO)
 
 Embebedor = Callable[[list[str], str], list[list[float]]]
 
 
 @cache
-def _modelo():
+def _modelo(nombre: str = MODELO):
     from sentence_transformers import SentenceTransformer  # extra opcional: import tardío
 
-    return SentenceTransformer(MODELO)
+    return SentenceTransformer(nombre)
 
 
-def embeber(textos: list[str], tipo: str) -> list[list[float]]:
+def embebedor(modelo: str) -> Embebedor:
     """tipo: 'query' o 'passage' (e5 se entrenó con esos prefijos)."""
-    vecs = _modelo().encode([f"{tipo}: {t}" for t in textos], normalize_embeddings=True)
-    return vecs.tolist()
+
+    def emb(textos: list[str], tipo: str) -> list[list[float]]:
+        vecs = _modelo(modelo).encode([f"{tipo}: {t}" for t in textos], normalize_embeddings=True)
+        return vecs.tolist()
+
+    return emb
+
+
+embeber = embebedor(MODELO)
 
 
 def texto_de(r: dict) -> str:
@@ -47,7 +60,12 @@ def texto_de(r: dict) -> str:
     return " ".join(p for p in partes if p)
 
 
-def indexar(con: duckdb.DuckDBPyConnection, emb: Embebedor = embeber, ruta: Path = LANCE) -> int:
+def indexar(
+    con: duckdb.DuckDBPyConnection,
+    emb: Embebedor = embeber,
+    ruta: Path = LANCE,
+    tabla: str = TABLA,
+) -> int:
     filas = _filas(
         con,
         "SELECT id, nombre, categoria, subcategorias, estilo, municipio, descripcion FROM recurso",
@@ -58,7 +76,7 @@ def indexar(con: duckdb.DuckDBPyConnection, emb: Embebedor = embeber, ruta: Path
         {"id": f["id"], "categoria": f["categoria"], "vector": v}
         for f, v in zip(filas, vecs, strict=True)
     ]
-    lancedb.connect(ruta).create_table(TABLA, data=datos, mode="overwrite")
+    lancedb.connect(ruta).create_table(tabla, data=datos, mode="overwrite")
     return len(datos)
 
 
@@ -69,9 +87,10 @@ def buscar_semantica(
     categoria: str | None = None,
     emb: Embebedor = embeber,
     ruta: Path = LANCE,
+    tabla: str = TABLA,
 ) -> list[dict]:
     """Los k recursos más parecidos a `texto`, con su similitud (coseno, 0-1)."""
-    q = lancedb.connect(ruta).open_table(TABLA).search(emb([texto], "query")[0])
+    q = lancedb.connect(ruta).open_table(tabla).search(emb([texto], "query")[0])
     q = q.distance_type("cosine")
     if categoria:
         q = q.where(f"categoria = '{categoria.replace(chr(39), '')}'", prefilter=True)

@@ -9,8 +9,8 @@ import httpx
 from pyproj import Transformer
 from shapely.geometry import Point, shape
 
+from navarra_trip.ingest import bares, extra, osm, senderos, wikidata
 from navarra_trip.ingest import ckan as extra_ckan
-from navarra_trip.ingest import extra, osm, wikidata
 from navarra_trip.ingest.ckan import RAW
 from navarra_trip.ingest.geocode import Geocoder
 from navarra_trip.ingest.wikidata import Cliente
@@ -130,6 +130,13 @@ def establecimientos(raw: dict, pref: str, geo: Geocoder, manual: dict | None = 
     return filas
 
 
+def _mismas_claves(filas: list[dict]) -> list[dict]:
+    """Las rutas traen campos propios (gpx, desnivel...) y les faltan otros (osm_id...): DuckDB
+    necesita el mismo struct en todas las filas."""
+    claves = dict.fromkeys(k for f in filas for k in f)
+    return [dict.fromkeys(claves) | f for f in filas]
+
+
 def guardar(con: duckdb.DuckDBPyConnection, tabla: str, filas: list[dict]) -> None:
     con.execute(f"DROP TABLE IF EXISTS {tabla}")
     con.execute(
@@ -175,7 +182,9 @@ def main() -> None:
             manual = wikidata.leer_manual()
             tablas = {
                 "recurso": [
-                    r for r in recursos(mon, esp) if not manual.get(r["id"], {}).get("quitar")
+                    r
+                    for r in recursos(mon, esp) + extra.recursos_extra()
+                    if not manual.get(r["id"], {}).get("quitar")
                 ],
                 "alojamiento": establecimientos(aloj, "aloj", geo)
                 + establecimientos(agro, "aloj", geo),
@@ -188,6 +197,8 @@ def main() -> None:
             GEOCACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
         wikidata.ejecutar(tablas["recurso"], client)
         osm.ejecutar(tablas["recurso"], client)
+        tablas["recurso"] = _mismas_claves(tablas["recurso"] + senderos.ejecutar(client))
+        tablas["bar"] = bares.ejecutar(client)
     extra.aplicar_manual(tablas["recurso"], manual)
     print(f"zona         {extra.completar_zonas(tablas['recurso'])} recursos con la más cercana")
     tablas["oficina"] = extra.oficinas(cargar(extra_ckan.OFICINAS))

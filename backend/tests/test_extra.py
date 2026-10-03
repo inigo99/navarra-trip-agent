@@ -100,3 +100,13 @@ def test_zona_y_campos_manuales():
     assert extra.completar_zonas(rs) == 1 and rs[2]["zona"] == "Pirineo"
     extra.aplicar_manual(rs, {"c": {"horario": "Tu-Su 10:00-14:00", "de_pago": "sí"}})
     assert rs[2]["horario"] == "Tu-Su 10:00-14:00" and rs[2]["de_pago"] is True
+
+
+def test_duracion_por_subcategoria_y_manual():
+    iglesia = {"id": "m", "categoria": "monumento", "subcategorias": ["Iglesias y ermitas"]}
+    museo = {"id": "c", "categoria": "monumento", "subcategorias": ["Castillos/Palacios", "Plazas"]}
+    raro = {"id": "x", "categoria": "natural", "subcategorias": ["Otros espacios"]}
+    ruta = {"id": "ruta:a", "categoria": "ruta", "subcategorias": [], "duracion_min": 195}
+    rs = [iglesia, museo, raro, ruta]
+    extra.aplicar_manual(rs, {"m": {"duracion": "50"}})
+    assert [r["duracion_min"] for r in rs] == [50, 60, 60, 195]

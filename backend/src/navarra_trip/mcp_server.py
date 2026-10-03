@@ -43,7 +43,8 @@ def buscar_recursos(
 
     - consulta: texto libre por significado ("castillos medievales", "cascadas para ir con
       niños"). Si se da, ordena por similitud.
-    - categoria: 'monumento' o 'natural'. municipio y estilo ('románico', 'gótico'…) filtran
+    - categoria: 'monumento', 'natural' o 'ruta' (senderos homologados con duración y
+      desnivel). municipio y estilo ('románico', 'gótico'…) filtran
       sin tildes. Sin consulta, devuelve los que cumplen los filtros por orden alfabético.
     """
     if consulta and not (municipio or estilo):
@@ -91,6 +92,13 @@ def alojamientos_cerca(
 def restaurantes_cerca(lat: float, lon: float, radio_km: float = 5, limite: int = 20) -> list[dict]:
     """Restaurantes del Registro de Turismo de Navarra, del más cercano al más lejano."""
     return consultas.restaurantes_cerca(_con(), lat, lon, radio_km, limite)
+
+
+@mcp.tool
+def bares_cerca(lat: float, lon: float, radio_km: float = 1, limite: int = 50) -> list[dict]:
+    """Bares, pubs y cafeterías (OpenStreetMap) y restaurantes con tapas y raciones (Registro de
+    Turismo), del más cercano al más lejano. Para pintxos. Horarios casi nunca: confirmarlos."""
+    return consultas.bares_cerca(_con(), lat, lon, radio_km, limite)
 
 
 @mcp.tool

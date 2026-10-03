@@ -5,7 +5,6 @@ from datetime import date
 
 import duckdb
 import pytest
-from langchain_core.messages import AIMessage
 
 from navarra_trip import agente, planner
 from navarra_trip.ingest.normaliza import guardar
@@ -30,6 +29,11 @@ def _rec(id, nombre, cat, lat, lon, estilo=None):
         "descripcion_fuente": "wikipedia",
         "horario": None,
         "visitantes_12m": None,
+        "duracion_min": None,
+        "longitud_km": None,
+        "desnivel_m": None,
+        "cimas": None,
+        "gpx": None,
         "wikidata_id": None,
         "precio": None,
         "de_pago": None,
@@ -94,6 +98,19 @@ def con():
             _sitio("rest", 1, 42.50, -1.50),
             _sitio("rest", 2, 42.50, -1.505),
             _sitio("rest", 3, 42.55, -1.80),
+            _sitio("rest", 4, 42.4805, -1.6505)
+            | {"especialidad": "Casera o regional, De tapas y raciones"},
+        ],
+    )
+    bar = {"tipo": "bar", "localidad": "Olite", "horario": None, "web": None, "url_fuente": "u"}
+    guardar(
+        c,
+        "bar",
+        [  # tres juntos en el casco (más rest:4, con tapas) y uno suelto a 600 m
+            bar | {"id": "bar:n1", "nombre": "Bar 1", "lat": 42.4810, "lon": -1.6500},
+            bar | {"id": "bar:n2", "nombre": "Bar 2", "lat": 42.4812, "lon": -1.6510},
+            bar | {"id": "bar:n3", "nombre": "Bar 3", "lat": 42.4800, "lon": -1.6515},
+            bar | {"id": "bar:n4", "nombre": "Bar suelto", "lat": 42.4855, "lon": -1.6500},
         ],
     )
     return c
@@ -117,6 +134,16 @@ def ruta(pts, modo, geometria=False):
 def test_lugar_encuentra_nombre_bilingue(con):
     assert planner.lugar(con, "olite")["nombre"] == "Olite/Erriberri"
     assert planner.lugar(con, "Madrid") is None
+    assert planner.lugar(con, "Erriberrin")["nombre"] == "Olite/Erriberri"  # euskera
+    assert planner.lugar(con, "Eriberri")["nombre"] == "Olite/Erriberri"  # errata del LLM
+
+
+def test_intereses_lejanos(con):
+    base = planner.lugar(con, "olite")
+    sims = {"catedral": {"mon:lejos": 1.0, "mon:e0": 0.2}, "románico": {"mon:e0": 1.0}}
+    req = Requisitos(base="Olite", intereses=["catedral", "románico", "playa"])
+    lejos = planner.intereses_lejanos(con, req, base, lambda i: sims.get(i, {}), k=1)
+    assert lejos == ["catedral", "playa"]
 
 
 def test_candidatos_alternan_intereses_y_respetan_el_radio(con):
@@ -133,7 +160,7 @@ def test_agrupar_separa_por_zona_y_reparte(con):
     grupos = planner.agrupar(OLITE, c, req, [None, None], matriz)
     zonas = [{r["id"][4] for r in g} for g in grupos]  # 'e' u 'o'
     assert sorted(map(sorted, zonas)) == [["e"], ["o"]]
-    assert all(len(g) <= 4 for g in grupos)
+    assert all(len(g) <= planner.PARADAS["normal"] for g in grupos)
 
 
 def test_mal_tiempo_tira_de_monumentos(con):
@@ -169,10 +196,13 @@ def test_ordenar_respeta_tope_de_conduccion(con):
     lejos = [r | {"puntos": 1.0 if r["id"] == "mon:e0" else 0.1} for r in lejos]
     d = planner.ordenar(OLITE, lejos, req, matriz, ruta)
     assert [p["id"] for p in d["paradas"]] == ["mon:e0"]  # la catedral (180 min ida y vuelta) sale
-    assert d["paradas"][0]["llegada"] == "10:12"  # 12 km
+    assert d["paradas"][0]["llegada"] == "10:15"  # 12 km = 10:12, al cuarto de hora
 
 
 class FakeLLM:
+    """textos: una entrada por llamada a redactar. str = esa frase para cada lugar pedido;
+    dict = {id: frase}; Exception = el modelo falla (p. ej. JSON cortado)."""
+
     def __init__(self, req, textos):
         self.req, self.textos = req, list(textos)
 
@@ -182,7 +212,12 @@ class FakeLLM:
     def invoke(self, msgs):
         if isinstance(msgs[0][1], str) and msgs[0][1].startswith("Extraes"):
             return self.req
-        return AIMessage(content=self.textos.pop(0))
+        t = self.textos.pop(0)
+        if isinstance(t, Exception):
+            raise t
+        if isinstance(t, str):
+            t = {lugar["id"]: t for lugar in json.loads(msgs[1][1])["lugares"]} if t else {}
+        return agente.Redaccion(lugares=[agente.Frase(id=k, texto=v) for k, v in t.items()])
 
 
 def _grafo(con, req, textos):
@@ -210,25 +245,27 @@ def test_agente_plan_completo_y_corrige_ids_inventados(con):
     assert len(paradas) == len(set(paradas)) == 8  # 6 románicas + 2 de relleno
     assert all(d["comida"] for d in plan["dias"])
     assert {a["id"] for a in plan["alojamientos"]} == {"aloj:1", "aloj:2"}
-    # el LLM falla 2 veces: queda la plantilla, que solo cita ids del plan
-    assert s["intentos"] == 2 and set(agente.CITA.findall(s["texto"])) <= planner.ids(plan)
+    # el texto lo compone el código: solo cita ids del plan (el que el LLM metió en su frase
+    # se quita) y cada parada lleva su frase
+    assert s["intentos"] == 1 and set(agente.CITA.findall(s["texto"])) == planner.ids(plan)
+    assert s["texto"].count("Visita") == len(paradas)
     tipos = {f["properties"].get("tipo") for f in plan["geojson"]["features"]}
     assert {"base", "parada", "comida", "alojamiento"} <= tipos
 
 
-def test_agente_acepta_texto_bien_citado(con):
+def test_agente_redacta_frases_y_el_codigo_las_horas(con):
     req = Requisitos(dias=1, base="Olite", intereses=["cascada"], ritmo="relajado")
-    plan = None
+    pedido = None
 
-    class Eco(FakeLLM):  # cita exactamente las paradas que recibe
+    class Eco(FakeLLM):
         def invoke(self, msgs):
             if msgs[0][1].startswith("Extraes"):
                 return self.req
-            nonlocal plan
-            plan = json.loads(msgs[1][1])
-            return AIMessage(
-                content=" ".join(f"[{p['id']}]" for d in plan["dias"] for p in d["agenda"])
-            )
+            nonlocal pedido
+            pedido = json.loads(msgs[1][1])
+            frases = [agente.Frase(id=x["id"], texto="Bonito.") for x in pedido["lugares"]]
+            frases.append(agente.Frase(id="mon:inventado", texto="No existe."))
+            return agente.Redaccion(lugares=frases)
 
     g = agente.construir(
         Eco(req, []),
@@ -239,12 +276,19 @@ def test_agente_acepta_texto_bien_citado(con):
         prevision=lambda *a: [],
         hoy=date(2026, 10, 2),
     )
-    s = g.invoke({"peticion": "1 día"})
-    assert s["intentos"] == 1 and not s.get("error")
-    agenda = plan["dias"][0]["agenda"]
-    assert "lat" not in agenda[0]  # al LLM no le llegan coordenadas
-    # la cascada este + 2 iglesias a su lado; comida al acabar la última (13:40)
-    assert [a["tipo"] for a in agenda] == ["parada", "parada", "parada", "comida"]
+    s = g.invoke({"peticion": "1 día tranquilo"})
+    assert s["intentos"] == 1 and "llegada" not in pedido["lugares"][0]  # al LLM, sin horas
+    assert "mon:inventado" not in s["texto"]
+    dia1 = s["texto"].split("## Where")[0].split("## Dónde dormir")[0]
+    lineas = [x for x in dia1.splitlines() if x.startswith("- ")]
+    tipos = ["parada" if "Bonito." in x else x.split("** ", 1)[1].split(":")[0] for x in lineas]
+    # relajado: hasta 6 paradas; la comida entre ellas; vuelta antes de la cena, que cierra
+    assert tipos.count("parada") >= 4 and "Comida" in tipos[1:-3]
+    assert (
+        tipos[-1] == "Cena"
+        and tipos[-2].startswith("Tiempo libre")
+        or tipos[-2].startswith("Vuelta")
+    )
 
 
 def test_fecha_relativa():
@@ -254,6 +298,15 @@ def test_fecha_relativa():
     assert agente.fecha_relativa("mañana", viernes) == date(2026, 10, 3)
     assert agente.fecha_relativa("el viernes", viernes) == viernes
     assert agente.fecha_relativa("del 12 al 14 de octubre", viernes) is None
+    assert agente.fecha_relativa("dentro de dos meses", viernes) == date(2026, 12, 1)
+    assert agente.fecha_relativa("in 2 weeks", viernes) == date(2026, 10, 16)
+    assert agente.fecha_relativa("Pamplona in 3 days", viernes) is None  # duración
+    assert agente.fecha_relativa("Un finde por el norte", viernes) == date(2026, 10, 3)
+    assert agente.fecha_relativa("Larunbatean egun bat Garesen", viernes) == date(2026, 10, 3)
+    assert agente.dias_euskera("Hiru egun Izaban") == 3
+    assert agente.dias_euskera("Egun bat Lekunberrin") == 1
+    assert agente.dias_euskera("Asteburua Erriberrin") == 2
+    assert agente.dias_euskera("Nafarroa ikusi nahi dut") is None
 
 
 def test_ordenar_quita_lo_que_mas_tiempo_ahorra(con):
@@ -281,3 +334,247 @@ def test_candidatos_sin_cerrados(con):
     req = Requisitos(dias=2, base="Olite", intereses=["románica"])
     ids = [r["id"] for r in planner.candidatos(con, req, OLITE, planner.similitud_texto(con))]
     assert "mon:e0" not in ids and "mon:e1" in ids
+
+
+def test_si_el_modelo_falla_el_plan_sale_igual(con):
+    req = Requisitos(dias=1, base="Olite")
+    fallos = [ValueError("JSON cortado"), ValueError("otra vez")]
+    s = _grafo(con, req, fallos).invoke({"peticion": "1 día"})
+    plan = s["plan"]
+    assert s["intentos"] == 2 and all(
+        f"[{p['id']}]" in s["texto"] for p in plan["dias"][0]["paradas"]
+    )
+
+
+def test_respaldar_transporte_y_ritmo():
+    from navarra_trip import evaluacion as ev
+
+    for f in ev.leer_csv("peticiones.csv"):  # lo que espera la batería sobrevive
+        req = Requisitos(transporte=f["transporte"] or "coche", ritmo=f["ritmo"] or "normal")
+        agente._respaldar(req, f["peticion"])
+        assert (req.transporte, req.ritmo) == (
+            f["transporte"] or "coche",
+            f["ritmo"] or "normal",
+        ), f["id"]
+    req = Requisitos(transporte="pie", ritmo="relajado")
+    agente._respaldar(req, "Hiru egun Izaban, mendia eta haranak")
+    assert (req.transporte, req.ritmo) == ("coche", "normal")
+
+
+def test_tarde_llena_hasta_la_hora_de_fin(con):
+    c = [r | {"puntos": 1.0} for r in recursos_cerca(con, 42.48, -1.65, 40, limite=50)]
+    for ritmo, n in (("relajado", 5), ("intenso", 8)):
+        req = Requisitos(dias=1, base="Olite", ritmo=ritmo)
+        dia = planner.ordenar(
+            OLITE, planner.agrupar(OLITE, c, req, [None], matriz)[0], req, matriz, ruta
+        )
+        assert len(dia["paradas"]) >= n - 1 and dia["vuelta"] <= planner._hora(planner.FIN[ritmo])
+
+
+def test_sendero_lleva_la_comida_dentro():
+    paradas = [
+        {"id": "mon:1", "categoria": "monumento"},
+        {"id": "ruta:slna1", "categoria": "ruta", "duracion_min": 240},
+    ]
+    h = planner._horario(paradas, [10, 20, 30])
+    # 10:10-10:55 iglesia; 11:15 empieza el sendero: picnic dentro, sin restaurante
+    assert h["comida_tras"] == 1 and paradas[1]["picnic"]
+    assert h["vuelta"] == (11 * 60 + 30) + 240 + planner.PICNIC + 30  # llegada 11:20 -> 11:30
+
+
+def test_senderos_solo_si_se_piden():
+    assert planner.quiere_senderos(Requisitos(intereses=["montaña", "valles"]))
+    assert planner.quiere_senderos(Requisitos(intereses=["hiking"]))
+    assert not planner.quiere_senderos(Requisitos(intereses=["románico", "castillos"]))
+
+
+def test_ronda_de_pintxos_y_cena(con):
+    assert planner.quiere_pintxos(Requisitos(intereses=["pintxos"]))
+    assert not planner.quiere_pintxos(Requisitos(intereses=["castillos"]))
+    usados = set()
+    ronda = planner.ronda(con, OLITE, usados)
+    assert {b["id"] for b in ronda} == {"bar:n1", "bar:n2", "bar:n3", "rest:4"}  # sin el suelto
+    assert planner.ronda(con, OLITE, usados) == []  # 2.º día: solo queda el suelto
+    # rest:4 ya está usado y el resto queda lejos: se repite antes que dejar el día sin cena
+    assert planner.cena(con, OLITE, usados)["id"] == "rest:4"
+    assert planner.cena(con, OLITE, set())["id"] == "rest:4"
+
+
+def test_agente_pone_ronda_si_se_piden_pintxos(con):
+    req = Requisitos(dias=2, base="Olite", intereses=["pintxos"])
+    s = _grafo(con, req, ["x"] * 4).invoke({"peticion": "2 días en Olite de pintxos"})
+    d1, d2 = s["plan"]["dias"]
+    assert len(d1["ronda"]) == 4 and not d1.get("cena")
+    assert d2["cena"]["id"] == "rest:4" and any(
+        "ronda de pintxos" in a for a in s["plan"]["avisos"]
+    )
+    assert "bar:n1" in s["texto"]  # el texto cita los bares
+
+
+def test_mejor_orden_exacto_y_tope_de_senderos():
+    import random
+
+    rnd = random.Random(1)
+    m = [[0 if a == b else rnd.randint(1, 60) for b in range(8)] for a in range(8)]
+    idx = list(range(1, 8))
+
+    def coste(o):
+        return sum(m[a][b] for a, b in zip((0, *o), (*o, 0), strict=True))
+
+    orden, c = planner._mejor_orden(m, idx)
+    assert sorted(orden) == idx and c == coste(orden)
+    assert c == min(coste(o) for o in itertools.permutations(idx))
+    rutas_ = [
+        {
+            "id": f"ruta:{i}",
+            "categoria": "ruta",
+            "lat": 42.48,
+            "lon": -1.65 + i / 1000,
+            "duracion_min": 60,
+            "puntos": 1.0,
+        }
+        for i in range(5)
+    ]
+    for ritmo, n in (("relajado", 1), ("normal", 2)):
+        req = Requisitos(dias=1, base="Olite", ritmo=ritmo)
+        assert len(planner.agrupar(OLITE, rutas_, req, [None], matriz)[0]) == n
+
+
+def test_picnic_solo_en_su_sendero_y_hay_que_citar_bares(con):
+    req = Requisitos(dias=1, base="Olite", intereses=["pintxos"])
+    s = _grafo(con, req, ["", ""]).invoke({"peticion": "1 día de pintxos"})
+    assert s["intentos"] == 2  # sin frases: las pide otra vez y luego sale sin ellas
+    assert all(f"[bar:n{i}]" in s["texto"] for i in (1, 2, 3))
+    plan = {
+        "base": {"nombre": "Isaba"},
+        "alojamientos": [],
+        "avisos": [],
+        "dias": [
+            {
+                "dia": 1,
+                "fecha": None,
+                "tiempo": None,
+                "vuelta": "18:00",
+                "km": 1,
+                "comida": None,
+                "comida_tras": 1,
+                "paradas": [
+                    {"id": "mon:1", "llegada": "10:00", "duracion_min": 30},
+                    {"id": "ruta:a", "llegada": "11:00", "duracion_min": 240, "picnic": True},
+                ],
+            }
+        ],
+    }
+    agenda = agente._para_llm(plan)["dias"][0]["agenda"]
+    assert [a["tipo"] for a in agenda] == ["parada", "parada", "comida", "vuelta a Isaba"]
+    assert agenda[2]["nota"] == agente.PICNIC and "picnic" not in agenda[1]
+
+
+def test_texto_en_su_idioma_y_sin_horas_inventadas(con):
+    req = Requisitos(dias=1, base="Olite", idioma="en")
+    s = _grafo(con, req, ["Opens at 09:00.", "Lovely church."]).invoke({"peticion": "1 day"})
+    assert s["texto"].startswith("## Day 1") and "09:00" not in s["texto"]
+    assert "Lovely church." in s["texto"] and "Dinner:" in s["texto"]
+    assert "Where to stay" not in s["texto"]  # un día: sin alojamientos
+
+
+def _r(id, lat, lon, cat="monumento", **kw):
+    return {"id": id, "nombre": id, "categoria": cat, "lat": lat, "lon": lon, "puntos": 1.0} | kw
+
+
+def test_el_pueblo_se_ve_seguido_y_en_su_dia():
+    # base en (42.8, -1.64); a, b en el pueblo (~1-3 min); c y d fuera (~15-20 min)
+    base = {"lat": 42.8, "lon": -1.64}
+    a, b = _r("mon:a", 42.81, -1.64), _r("mon:b", 42.79, -1.64)
+    c, d = _r("mon:c", 42.95, -1.64), _r("mon:d", 42.95, -1.62)
+    req = Requisitos(dias=2, base="x")
+    grupos = planner.agrupar(base, [a, c, b, d], req, [None, None], matriz)
+    assert sorted(sorted(r["id"] for r in g) for g in grupos) == [
+        ["mon:a", "mon:b"],
+        ["mon:c", "mon:d"],
+    ]
+    # si van el mismo día, el pueblo de seguido: nunca a -> c -> b
+    dia = planner.ordenar(base, [a, c, b], req, matriz, ruta)
+    ids_ = [p["id"] for p in dia["paradas"]]
+    assert ids_.index("mon:c") in (0, 2) and not dia["en_la_base"]
+    assert planner.ordenar(base, [a, b], req, matriz, ruta)["en_la_base"]
+
+
+def test_monte_con_tope_de_esfuerzo():
+    base = {"lat": 42.9, "lon": -0.8}
+    mesa = _r(
+        "esp:7350", 42.91, -0.8, "natural", subcategorias=["Montes y sierras"], duracion_min=360
+    )
+    corto = _r("ruta:slna1", 42.91, -0.79, "ruta", duracion_min=60)
+    for ritmo, n in (("normal", 1), ("intenso", 2)):
+        req = Requisitos(dias=1, base="x", ritmo=ritmo)
+        assert len(planner.agrupar(base, [mesa, corto], req, [None], matriz)[0]) == n
+    paradas = [dict(mesa)]
+    planner._horario(paradas, [10, 10])
+    assert paradas[0]["picnic"]  # la Mesa pasa por las 13:30: comida en el monte
+
+
+def test_comida_antes_de_una_visita_larga_que_empieza_a_mediodia():
+    paradas = [_r("mon:1", 0, 0, duracion_min=160), _r("esp:2", 0, 0, "natural", duracion_min=120)]
+    h = planner._horario(paradas, [5, 5, 5])  # 10:15-13:00; el valle acabaría a las 15:15
+    assert h["comida_tras"] == 0 and paradas[0]["comida_despues"] == "13:00"
+
+
+def test_restaurante_sin_comida_rapida_si_hay_otro():
+    filas = [
+        {"id": "rest:bk", "especialidad": "Rápida"},
+        {"id": "rest:2", "especialidad": "Asador"},
+    ]
+    usados = set()
+    assert planner._elegir(filas, usados)["id"] == "rest:2"
+    assert planner._elegir(filas, usados)["id"] == "rest:bk"  # si no queda otro
+    assert planner._elegir(filas, usados)["id"] == "rest:bk"  # y luego repite
+
+
+def test_el_picnic_cuenta_en_la_hora_de_fin():
+    p = {"id": "esp:7350", "nombre": "Mesa", "municipio": "Isaba", "llegada": "10:23"}
+    dia = {
+        "dia": 1,
+        "fecha": None,
+        "paradas": [p | {"duracion_min": 360, "picnic": True}],
+        "comida": None,
+        "comida_tras": 0,
+        "vuelta": "17:00",
+        "en_la_base": False,
+    }
+    plan = {
+        "requisitos": {"idioma": "es"},
+        "base": {"nombre": "Isaba"},
+        "dias": [dia],
+        "alojamientos": [],
+    }
+    assert "**10:23–16:53** **Mesa**" in agente.componer(plan, {}, [])
+
+
+def test_horas_en_cuartos_y_visitas_alargadas_si_sobra_tarde():
+    paradas = [_r("mon:1", 0, 0, duracion_min=40), _r("esp:2", 0, 0, "natural", duracion_min=60)]
+    h = planner._horario(paradas, [7, 8, 9])
+    assert [p["llegada"] for p in paradas] == ["10:15", "11:15"] and h["vuelta"] % 15 == 0
+    h = planner._alargar(paradas, [7, 8, 9], h, planner.FIN["normal"])
+    # monumento hasta +50 % (45 -> 75), espacio natural hasta el doble (60 -> 120)
+    assert [p["duracion_min"] for p in paradas] == [75, 120]
+    assert h["vuelta"] <= planner.FIN["normal"]
+
+
+def test_restaurante_pedido_por_nombre(con):
+    pedidos = planner.restaurantes_pedidos(con, OLITE, "Un día en Olite y cenar en el rest 4")
+    assert pedidos == {"rest:4"}
+    filas = [{"id": "rest:1", "especialidad": "Asador"}, {"id": "rest:4", "especialidad": "Rápida"}]
+    assert planner._elegir(filas, set(), pedidos)["id"] == "rest:4"
+
+
+def test_foces_se_amplian_y_cada_interes_abre_un_dia():
+    assert "cañones" in planner.ampliar("foces") and planner.ampliar("castillos") == "castillos"
+    base = {"lat": 42.8, "lon": -1.64}
+    # el interés 1 (foces) puntúa peor y queda lejos del grupo del 0: igualmente abre el día 2
+    a = _r("mon:a", 42.85, -1.64, interes=0, puntos=0.9)
+    b = _r("mon:b", 42.86, -1.64, interes=0, puntos=0.9)
+    foz = _r("esp:foz", 42.80, -1.30, "natural", interes=1, puntos=0.5)
+    req = Requisitos(dias=2, base="x")
+    grupos = planner.agrupar(base, [a, b, foz], req, [None, None], matriz)
+    assert [sorted(r["id"] for r in g) for g in grupos] == [["mon:a", "mon:b"], ["esp:foz"]]

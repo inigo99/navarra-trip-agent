@@ -63,7 +63,8 @@ def _cerca(
 _COLS_RECURSO = (
     "id, nombre, categoria, subcategorias, estilo, municipio, zona, lat, lon, wikidata_id, "
     f"left(descripcion, {RESUMEN}) AS descripcion, descripcion_fuente, horario, precio, de_pago, "
-    "web, revisado, cerrado, visitantes_12m, url_fuente"
+    "web, revisado, cerrado, visitantes_12m, url_fuente, duracion_min, longitud_km, desnivel_m, "
+    "cimas, gpx"
 )
 
 
@@ -97,6 +98,19 @@ def restaurantes_cerca(
 ) -> list[dict]:
     cols = "id, nombre, categoria, especialidad, localidad, lat, lon, geo_precision, url_fuente"
     return _cerca("restaurante", cols, {}, lat, lon, radio_km, limite, con)
+
+
+def bares_cerca(con, lat: float, lon: float, radio_km: float = 1, limite: int = 50) -> list[dict]:
+    """Para rondas de pintxos: bares, pubs y cafeterías de OSM y restaurantes del Registro con
+    tapas y raciones, del más cercano al más lejano."""
+    cols = "id, nombre, tipo, localidad, lat, lon, horario, web, url_fuente"
+    bares = _cerca("bar", cols, {}, lat, lon, radio_km, limite, con)
+    tapas = [
+        r | {"tipo": "tapas", "horario": None, "web": None}
+        for r in restaurantes_cerca(con, lat, lon, radio_km, limite)
+        if "tapas" in (r["especialidad"] or "")
+    ]
+    return sorted(bares + tapas, key=lambda r: r["km"])[:limite]
 
 
 def actividades_cerca(

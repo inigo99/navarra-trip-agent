@@ -24,6 +24,7 @@ navarra-mapa = "navarra_trip.ingest.mapa:main"
 navarra-indexar = "navarra_trip.tools.semantica:main"
 navarra-mcp = "navarra_trip.mcp_server:main"
 navarra-plan = "navarra_trip.agente:main"
+navarra-eval = "navarra_trip.evaluacion:main"
 
 [project.optional-dependencies]
 semantica = [
