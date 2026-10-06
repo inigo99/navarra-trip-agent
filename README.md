@@ -3,7 +3,9 @@
 Agente que diseña escapadas de varios días por Navarra con los datos abiertos del Gobierno de Navarra:
 plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registro de Turismo y la fuente de cada lugar.
 
-> Estado: semanas 1-6 (datos, herramientas + MCP, agente, evaluación, web y despliegue en Oracle Cloud con Groq).
+**Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (planes de ejemplo; para pedir los tuyos, ejecútalo en local).
+
+> Estado: semanas 1-6 (datos, herramientas + MCP, agente, evaluación, web y despliegue).
 
 ## Estructura
 
@@ -78,9 +80,12 @@ cd web && npm install && npm run dev                 # http://localhost:3000
 
 ## Despliegue
 
-Demo en una VM ARM gratuita de Oracle Cloud (OSRM, API, web y Caddy con HTTPS en Docker) con el
-LLM por la API gratuita de Groq: guía en [`infra/oracle/README.md`](infra/oracle/README.md).
-Sin servidor, la web también se exporta como estática con planes de ejemplo (`web/README.md`).
+Demo estática en Vercel con 9 planes de ejemplo generados en local con Groq (`openai/gpt-oss-120b`)
+y OSRM: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app) (`web/README.md`).
+
+Despliegue completo (OSRM, API, web y Caddy con HTTPS en Docker, LLM por la API gratuita de Groq) en
+una VM ARM gratuita de Oracle Cloud: guía en [`infra/oracle/README.md`](infra/oracle/README.md).
+No está activo: Oracle no tenía capacidad ARM gratuita al montarlo.
 
 ## Evaluación
 

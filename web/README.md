@@ -19,7 +19,7 @@ inglés o francés según el idioma del navegador; el itinerario, en el idioma d
 Sin servidor: la web muestra planes de ejemplo generados en local y no permite pedir ni ajustar planes.
 
 ```bash
-cd backend && uv run --extra semantica navarra-demo   # escribe web/public/ejemplos (Ollama y OSRM levantados)
+cd backend && uv run --extra semantica navarra-demo   # escribe web/public/ejemplos (OSRM levantado; NAVARRA_LLM=groq:openai/gpt-oss-120b u Ollama)
 cd web && NEXT_PUBLIC_DEMO=1 npm run build            # exportación estática en web/out
 ```
 
