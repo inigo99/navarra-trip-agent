@@ -86,3 +86,9 @@ e09,euskera,eu,"Hiru egun Izaban, mendia eta haranak",3,isaba,coche,,mendia|hara
 e10,euskera,eu,"Bi egun Orreagan, Donejakue Bidea eta Iratiko oihana",2,roncesvalles,coche,,Donejakue Bidea|basoak,,plan
 e11,euskera,eu,"Larunbatean egun bat Garesen, eliza erromanikoak",1,puente la reina,coche,,erromanikoa,sabado,plan
 e12,euskera,eu,"Nafarroa ikusi nahi dut",,,,,,,pregunta
+o01,opciones,es,"Quiero hacer una ruta de monte cerca de Isaba",,isaba,coche,,ruta de monte,,opciones
+o02,opciones,es,"Dime bares de pintxos en Estella",,estella,coche,,pintxos,,opciones
+o03,opciones,es,"¿Dónde comer en un buen asador en Tudela?",,tudela,coche,,asador,,opciones
+o04,opciones,en,"Suggest some Romanesque churches near Sangüesa",,sanguesa,coche,,Romanesque churches,,opciones
+o05,opciones,fr,"Des idées de cascades près d'Ochagavía",,ochagavia,coche,,cascades,,opciones
+o06,opciones,es,"Recomiéndame bodegas cerca de Olite",,olite,coche,,bodegas,,opciones

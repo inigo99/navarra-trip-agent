@@ -2,12 +2,14 @@
 
 interpretar → (falta algo: pregunta) → candidatos → tiempo → agrupar → ordenar → extras
 → redactar → comprobar (paradas sin frase: las pide otra vez; a la 2.ª, sin frase).
+Peticiones de opciones ("bares de pintxos en…"): interpretar → buscar → redactar → comprobar.
 
 El texto lo compone el código (días, horas, comidas, vuelta, alojamientos) y el LLM solo
 escribe una o dos frases por parada: escribiendo el itinerario entero, qwen2.5:7b ponía la
 vuelta después de la cena, "tiempo libre 21:00" o se saltaba lugares.
 
-LLM con NAVARRA_LLM (por defecto 'ollama:qwen2.5:7b'; demo: 'anthropic:claude-haiku-4-5').
+LLM con NAVARRA_LLM: por defecto 'ollama:qwen2.5:7b' en local; en el servidor de la demo,
+'groq:openai/gpt-oss-120b' (API gratuita, GROQ_API_KEY). Cualquier proveedor de LangChain.
 """
 
 import json
@@ -41,8 +43,30 @@ idioma: el de la petición (es, en, fr o eu = euskera).
 Ejemplo: "Fin de semana de 2 días desde Olite, castillos y vino"
 -> dias=2, base="Olite", intereses=["castillos", "vino"], ritmo="normal".
 "Algo tranquilo, 3 días en Pamplona a pie" -> dias=3, base="Pamplona", transporte="pie",
-ritmo="relajado"."""
+ritmo="relajado".
+"Quiero hacer una ruta de monte cerca de Isaba" -> tipo="opciones", base="Isaba",
+intereses=["ruta de monte"].
+"Dime bares de pintxos en Estella" -> tipo="opciones", base="Estella", intereses=["pintxos"]."""
 IDIOMAS = {"es": "español", "en": "inglés", "fr": "francés", "eu": "euskera"}
+# la orden también en el idioma pedido: los modelos pequeños copiaban el de las descripciones
+ESCRIBE = {
+    "es": "",
+    "en": "\nWrite every sentence in English.",
+    "fr": "\nÉcris chaque phrase en français.",
+    "eu": "\nIdatzi esaldi guztiak euskaraz.",
+}
+# "dime…", "recomiéndame…", "bares de…": pide opciones aunque el LLM diga plan
+PIDE_OPCIONES = re.compile(
+    r"\b(dime|recomiend\w*|sugier\w*|opciones|ideas|una ruta|rutas|bares|restaurantes?|donde "
+    r"(comer|cenar|tomar)|tell me|suggest\w*|recommend\w*|options|where to|bars|conseill\w*|"
+    r"idees|ou manger)\b"
+)
+FRASE_MAX = 400  # 1-2 frases; más largo, bucle
+# sin cuántos días ni fechas, no se suponen (se pregunta); "paso el día", "finde", "egun"...
+DURACION = re.compile(
+    r"\d|\b(dias?|days?|jours?|journees?|semanas?|weeks?|semaines?|finde|fin de semana|weekend"
+    r"|week-end|noches?|nights?|nuits?|egun\w*|asteburu\w*)\b"
+)
 DIAS_SEMANA = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
 REDACTAR = """Eres un guía de Navarra. Para cada lugar del JSON escribe en {idioma} una o dos
@@ -120,16 +144,46 @@ def construir(
         if f := fecha_relativa(s["peticion"], hoy):
             req.fecha_inicio = f  # qwen2.5:7b fallaba el día de la semana aun con la lista
         _respaldar(req, s["peticion"])
+        texto = consultas._sin_tildes(s["peticion"])
+        if not DURACION.search(texto):
+            req.dias = 0  # qwen2.5:3b ponía días a "Quiero ver Navarra desde Pamplona"
+            if PIDE_OPCIONES.search(texto):
+                req.tipo = "opciones"
+        elif req.dias:
+            req.tipo = "plan"  # con días es un viaje, aunque el LLM diga opciones
         if req.dias > planner.MAX_DIAS:
             avisos.append(f"El plan se limita a {planner.MAX_DIAS} días (pediste {req.dias}).")
             req.dias = planner.MAX_DIAS
-        falta = [FALTA[req.idioma][c] for c in ("dias", "base") if not getattr(req, c)]
+        necesita = ("base",) if req.tipo == "opciones" else ("dias", "base")
+        falta = [FALTA[req.idioma][c] for c in necesita if not getattr(req, c)]
         if falta:
             return {"requisitos": req, "pregunta": " ".join(falta)}
         base = planner.lugar(con, req.base)
         if base is None:
             return {"requisitos": req, "pregunta": NO_ENCONTRADO[req.idioma].format(req.base)}
         return {"requisitos": req, "base": base}
+
+    def buscar(s: Estado) -> Estado:
+        """Petición de opciones: lugares, rutas, bares o restaurantes, sin itinerario."""
+        req, base = s["requisitos"], s["base"]
+        similitud = sim or planner.similitud_por_defecto(con)
+        fuera = frozenset(s.get("excluir") or ())
+        ops = planner.opciones(con, req, base, similitud, s["peticion"], fuera)
+        if not ops:
+            avisos.append(f"No encuentro nada así cerca de {base['nombre']}.")
+        if any(o.get("categoria") == "bodega" for o in ops):
+            avisos.append("Las bodegas suelen pedir reserva para visitarlas: confírmalo en su web.")
+        plan = {
+            "requisitos": req.model_dump(mode="json"),
+            "base": base,
+            "alojamientos": [],
+            "dias": [],
+            "opciones": ops,
+            "avisos": list(avisos),
+            "excluidos": s.get("excluir") or [],
+            "candidatos": [],
+        }
+        return {"plan": plan | {"geojson": planner.geojson(plan)}, "intentos": 0}
 
     def candidatos(s: Estado) -> Estado:
         similitud = sim or planner.similitud_por_defecto(con)
@@ -216,18 +270,19 @@ def construir(
         """Una llamada por día: con los 4 días de Pamplona de una vez (36 lugares) el JSON
         pasaba del tope de tokens, llegaba cortado y el plan salía sin ninguna frase."""
         plan, frases = s["plan"], dict(s.get("frases") or {})
-        idioma = IDIOMAS[plan["requisitos"]["idioma"]]
-        faltan = set(s.get("faltan") or [p["id"] for d in plan["dias"] for p in d["paradas"]])
+        codigo = plan["requisitos"]["idioma"]
+        idioma = IDIOMAS[codigo]
+        faltan = set(s.get("faltan") or [p["id"] for g in _grupos(plan) for p in g])
         avisos = s.get("avisos_txt")
         traducir = plan["avisos"] if plan["requisitos"]["idioma"] != "es" and not avisos else []
-        validas = {p["id"]: p for d in plan["dias"] for p in d["paradas"]}
-        for d in plan["dias"]:
-            pedir = {p["id"] for p in d["paradas"]} & faltan
+        validas = {p["id"]: p for g in _grupos(plan) for p in g}
+        for grupo in _grupos(plan) or [[]]:  # [[]]: sin lugares, aún hay avisos que traducir
+            pedir = {p["id"] for p in grupo} & faltan
             if not pedir and not traducir:
                 continue
             datos = {"lugares": _lugares(plan, pedir), "avisos": traducir}
             msgs = [
-                ("system", REDACTAR.format(idioma=idioma)),
+                ("system", REDACTAR.format(idioma=idioma) + ESCRIBE[codigo]),
                 ("human", json.dumps(datos, ensure_ascii=False)),
             ]
             try:
@@ -235,7 +290,11 @@ def construir(
             except Exception:  # JSON roto (p. ej. cortado por el tope de tokens): sin frases
                 continue
             for f in r.lugares:
-                if f.id in pedir and _sin_horas_inventadas(f.texto, validas[f.id]):
+                if (
+                    f.id in pedir
+                    and _sin_horas_inventadas(f.texto, validas[f.id])
+                    and _frase_valida(f.texto, codigo)
+                ):
                     frases[f.id] = re.sub(r"\s*\[[^\]]*\]", "", f.texto).strip()  # sin citas
             if traducir and len(r.avisos) == len(traducir):
                 avisos, traducir = r.avisos, []
@@ -243,7 +302,7 @@ def construir(
 
     def comprobar(s: Estado) -> Estado:
         plan = s["plan"]
-        faltan = [p["id"] for d in plan["dias"] for p in d["paradas"] if p["id"] not in s["frases"]]
+        faltan = [p["id"] for g in _grupos(plan) for p in g if p["id"] not in s["frases"]]
         if faltan and s["intentos"] < INTENTOS:
             return {"faltan": faltan}
         avisos = s.get("avisos_txt") or plan["avisos"]
@@ -258,6 +317,7 @@ def construir(
     g = StateGraph(Estado)
     for nombre, f in [
         ("interpretar", interpretar),
+        ("buscar", buscar),
         ("candidatos", candidatos),
         ("tiempo", prevision_),
         ("agrupar", agrupar),
@@ -268,7 +328,17 @@ def construir(
     ]:
         g.add_node(nombre, f)
     g.add_edge(START, "interpretar")
-    g.add_conditional_edges("interpretar", lambda s: END if s.get("pregunta") else "candidatos")
+    g.add_conditional_edges(
+        "interpretar",
+        lambda s: (
+            END
+            if s.get("pregunta")
+            else "buscar"
+            if s["requisitos"].tipo == "opciones"
+            else "candidatos"
+        ),
+    )
+    g.add_edge("buscar", "redactar")
     for a, b in pairwise(
         ["candidatos", "tiempo", "agrupar", "ordenar", "extras", "redactar", "comprobar"]
     ):
@@ -558,6 +628,9 @@ ETIQUETAS = {  # el texto, en el idioma pedido
         "vuelta": "Vuelta a {}",
         "libre": "Tiempo libre en {}",
         "nota": "Horarios y precios pueden cambiar; confírmalos en la web de cada lugar.",
+        "opciones": "Opciones cerca de {}",
+        "duracion": "duración",
+        "a": "a {}",
     },
     "en": {
         "dia": "Day {}",
@@ -570,6 +643,9 @@ ETIQUETAS = {  # el texto, en el idioma pedido
         "vuelta": "Back to {}",
         "libre": "Free time in {}",
         "nota": "Opening hours and prices may change; check each place's website.",
+        "opciones": "Options near {}",
+        "duracion": "duration",
+        "a": "{} away",
     },
     "fr": {
         "dia": "Jour {}",
@@ -582,6 +658,9 @@ ETIQUETAS = {  # el texto, en el idioma pedido
         "vuelta": "Retour à {}",
         "libre": "Temps libre à {}",
         "nota": "Horaires et prix peuvent changer ; vérifiez-les sur le site de chaque lieu.",
+        "opciones": "Options près de {}",
+        "duracion": "durée",
+        "a": "à {}",
     },
     "eu": {
         "dia": "{}. eguna",
@@ -594,17 +673,34 @@ ETIQUETAS = {  # el texto, en el idioma pedido
         "vuelta": "Itzulera: {}",
         "libre": "Denbora librea: {}",
         "nota": "Ordutegiak eta prezioak alda daitezke; egiaztatu leku bakoitzaren webgunean.",
+        "opciones": "Aukerak {} inguruan",
+        "duracion": "iraupena",
+        "a": "{}ra",
     },
 }
 HORA = re.compile(r"\b\d{1,2}[:.h]\d{2}\b")
 
 
+def _grupos(plan: dict) -> list[list[dict]]:
+    """Lugares a los que el LLM escribe frases, una llamada por grupo: las paradas de cada día
+    o las opciones con descripción (bares y restaurantes no traen: inventaría)."""
+    if "opciones" in plan:
+        con_desc = [o for o in plan["opciones"] if o.get("descripcion")]
+        return [con_desc] if con_desc else []
+    return [d["paradas"] for d in plan["dias"]]
+
+
 def _lugares(plan: dict, ids: set[str]) -> list[dict]:
     """Lo que el LLM necesita para describir cada parada, sin horas del plan."""
     claves = ("id", "nombre", "municipio", "descripcion", "horario", "precio", "cimas")
-    return [
-        {k: p.get(k) for k in claves} for d in plan["dias"] for p in d["paradas"] if p["id"] in ids
-    ]
+    return [{k: p.get(k) for k in claves} for g in _grupos(plan) for p in g if p["id"] in ids]
+
+
+def _frase_valida(frase: str, idioma: str) -> bool:
+    """Fuera las frases en otro idioma (qwen2.5:3b escribía en español 1 de cada 10 frases de
+    planes en inglés) y las que entran en bucle ("Liédenan Liédenan…")."""
+    detectado = idioma_de(frase)
+    return len(frase) <= FRASE_MAX and detectado in (idioma, None)
 
 
 def _sin_horas_inventadas(frase: str, p: dict) -> bool:
@@ -627,11 +723,32 @@ def _detalle(p: dict) -> str:
     return f" ({', '.join(partes)})" if partes else ""
 
 
+def _duracion(minutos: int) -> str:
+    h, m = divmod(minutos, 60)
+    return f"{h} h {m:02d} min" if h and m else f"{h} h" if h else f"{m} min"
+
+
+def _opciones(plan: dict, frases: dict[str, str], et: dict) -> list[str]:
+    """Lista sin horarios: lugar, duración de la visita o la ruta, distancia y frase."""
+    out = ["## " + et["opciones"].format(plan["base"]["nombre"])]
+    for o in plan["opciones"]:
+        datos = [o.get("municipio") or o.get("localidad"), o.get("especialidad")]
+        if o.get("duracion_min"):
+            datos.append(f"{et['duracion']}: {_duracion(o['duracion_min'])}")
+        km = o.get("km") or 0
+        datos.append(et["a"].format(f"{km:.0f} km" if km >= 1 else f"{round(km * 1000)} m"))
+        if o["id"].startswith("bar:") and o.get("horario"):
+            datos.append(o["horario"])  # el de OSM tal cual: Mo-Su 12:00-24:00
+        linea = f"- **{o['nombre']}** [{o['id']}], " + " · ".join(d for d in datos if d)
+        out.append(linea + _detalle(o) + (f". {frases[o['id']]}" if o["id"] in frases else ""))
+    return out
+
+
 def componer(plan: dict, frases: dict[str, str], avisos: list[str]) -> str:
     """El itinerario en markdown: estructura y horas por código; frases del LLM."""
     et = ETIQUETAS[plan["requisitos"]["idioma"]]
     base = plan["base"]["nombre"]
-    out = []
+    out = _opciones(plan, frases, et) if "opciones" in plan else []
     for d in plan["dias"]:
         out += ["", "## " + et["dia"].format(d["dia"]) + (f" · {d['fecha']}" if d["fecha"] else "")]
         for i, p in enumerate(d["paradas"]):
@@ -664,7 +781,9 @@ def componer(plan: dict, frases: dict[str, str], avisos: list[str]) -> str:
     return "\n".join(out).strip()
 
 
-MAX_TOKENS = 3000  # un plan de 7 días ronda 1500
+# por llamada (un día: hasta 10 frases y los avisos, ~800). qwen2.5:1.5b entraba en bucle y
+# llegaba a 11 000 tokens en un plan (11 min); con tope, el día sale sin frases y se reintenta
+MAX_TOKENS = 1200
 TIMEOUT_S = 300  # e09 (euskera) dejó colgada la batería esperando a Ollama
 
 
@@ -678,8 +797,16 @@ def crear_llm(nombre: str = LLM):
             "num_ctx": 12288,  # 8192 no llegaba para una semana con 9 paradas al día
             "client_kwargs": {"timeout": TIMEOUT_S},
         }
+    elif nombre.startswith("groq:openai/gpt-oss"):
+        # modelos de razonamiento: lo que piensan cuenta en el tope de tokens; con poco
+        # razonamiento sobra para extraer requisitos y escribir frases
+        extra = {"max_tokens": 2 * MAX_TOKENS, "timeout": TIMEOUT_S, "reasoning_effort": "low"}
     else:
         extra = {"max_tokens": MAX_TOKENS, "timeout": TIMEOUT_S}
+    if not nombre.startswith("ollama:"):
+        # las APIs gratuitas devuelven 503/429 en picos ("over capacity"): el cliente reintenta
+        # con espera exponencial
+        extra["max_retries"] = 6
     return init_chat_model(nombre, temperature=0, **extra)
 
 

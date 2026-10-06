@@ -8,6 +8,7 @@ import difflib
 import itertools
 import math
 import re
+import sys
 from collections.abc import Callable
 from datetime import date
 from typing import Literal
@@ -82,6 +83,12 @@ class Requisitos(BaseModel):
         description="Temas en pocas palabras, p. ej. ['románico', 'cascadas', 'castillos']",
     )
     ritmo: Literal["relajado", "normal", "intenso"] = "normal"
+    tipo: Literal["plan", "opciones"] = Field(
+        "plan",
+        description="'opciones' si pide sitios, rutas, bares o restaurantes concretos, sin un "
+        "viaje de días ('una ruta de monte cerca de Isaba', 'bares de pintxos en Estella'); "
+        "'plan' si pide un viaje o una escapada",
+    )
     idioma: Literal["es", "en", "fr", "eu"] = Field("es", description="Idioma en que se escribe")
     fecha_inicio: date | None = Field(None, description="Primer día del viaje, si lo dice")
     alojamiento: Literal["hotel", "rural", "apartamento", "albergue", "camping"] | None = None
@@ -160,7 +167,13 @@ def similitud_por_defecto(con) -> Similitud:
 
         buscar_semantica(con, "prueba", k=1)  # falla aquí si no hay extra o índice
         return lambda i: {r["id"]: r["similitud"] for r in buscar_semantica(con, i, k=500)}
-    except (ImportError, ValueError, FileNotFoundError):
+    except (ImportError, ValueError, FileNotFoundError) as e:
+        # a la vista: un scikit-learn roto dejó los planes con la búsqueda por palabras sin
+        # que se notara
+        print(
+            f"aviso: sin búsqueda semántica ({type(e).__name__}: {e}); uso palabras",
+            file=sys.stderr,
+        )
         return similitud_texto(con)
 
 
@@ -180,6 +193,7 @@ def candidatos(
     if not quiere_vino(req):  # OSM no dice si se visitan: solo si se piden
         cerca = [r for r in cerca if r["categoria"] != "bodega"]
     n = (req.dias or 1) * PARADAS[req.ritmo] * 3  # con *2 se agotaban y sobraba tarde
+    cerca = _sin_duplicados(cerca)
     destacados = sorted(cerca, key=lambda r: (r["descripcion_fuente"] != "wikipedia", r["km"]))
     por_id = {r["id"]: r for r in cerca}
     rankings = []
@@ -205,6 +219,18 @@ def candidatos(
                 out.append(por_id[par[1]] | {"puntos": par[0], "interes": k})
     relleno = (r | {"puntos": 0.01} for r in destacados if nuevo(r))
     return out + list(itertools.islice(relleno, n - len(out)))
+
+
+def _sin_duplicados(rs: list[dict]) -> list[dict]:
+    """Un recurso por lugar (mismo Wikidata o mismas coordenadas), el de visita más larga: se
+    perdía el Parque Natural de las Bardenas (150 min) por sus Miradores (20), que salían antes."""
+    out, vistas = [], set()
+    for r in sorted(rs, key=lambda r: -duracion(r)):
+        claves = {(round(r["lat"], 4), round(r["lon"], 4))} | {r.get("wikidata_id")} - {None}
+        if not claves & vistas:
+            vistas |= claves
+            out.append(r)
+    return out
 
 
 # El modelo de embeddings no sabe qué es una foz: con "foces", la Foz de Lumbier no salía entre
@@ -691,6 +717,7 @@ def geojson(plan: dict) -> dict:
             fs.append(punto(d["cena"], tipo="cena", dia=d["dia"]))
         fs += [punto(b, tipo="bar", dia=d["dia"]) for b in d.get("ronda") or []]
     fs += [punto(a, tipo="alojamiento") for a in plan["alojamientos"]]
+    fs += [punto(o, tipo="opcion", orden=i + 1) for i, o in enumerate(plan.get("opciones") or [])]
     for d in plan["dias"]:
         fs += [
             punto(p, tipo="parada", dia=d["dia"], orden=i + 1) for i, p in enumerate(d["paradas"])
@@ -706,7 +733,7 @@ def geojson(plan: dict) -> dict:
 
 def ids(plan: dict) -> set[str]:
     """Todo lo que el texto puede citar."""
-    out = {a["id"] for a in plan["alojamientos"]}
+    out = {a["id"] for a in plan["alojamientos"]} | {o["id"] for o in plan.get("opciones") or []}
     for d in plan["dias"]:
         out |= {p["id"] for p in d["paradas"]}
         if d.get("comida"):
@@ -715,3 +742,37 @@ def ids(plan: dict) -> set[str]:
             out.add(d["cena"]["id"])
         out |= {b["id"] for b in d.get("ronda") or []}
     return out
+
+
+# ---------- opciones: "una ruta de monte cerca de…", "bares de pintxos en…" ----------
+
+N_OPCIONES = 6
+RADIO_BARES_KM = 1.5
+COMER = ("restaur", "comer", "cenar", "asador", "sidreri", "dinner", "lunch", "manger", "diner")
+
+
+def opciones(
+    con, req: Requisitos, base: dict, sim: Similitud, peticion: str, excluir=frozenset()
+) -> list[dict]:
+    """Sin itinerario: los N mejores lugares, bares o restaurantes, con su duración (visitas y
+    rutas) y la distancia en línea recta desde la base."""
+    lat, lon, t = base["lat"], base["lon"], consultas._sin_tildes(peticion)
+    if quiere_pintxos(req) or any(p in t for p in PINTXOS):
+        bares = consultas.bares_cerca(con, lat, lon, RADIO_BARES_KM, 200)
+        bares = [b for b in bares if b["id"] not in excluir]
+        return sorted(bares, key=lambda b: (b["tipo"] == "cafe", b["km"]))[:N_OPCIONES]
+    if any(p in t for p in COMER):
+        pedidos = restaurantes_pedidos(con, base, peticion)
+        palabras = [w[:5] for w in consultas._sin_tildes(" ".join(req.intereses)).split()]
+
+        def orden(r):
+            esp = consultas._sin_tildes(r["especialidad"] or "")
+            pide = any(w in esp for w in palabras if len(w) > 3)
+            return (r["id"] not in pedidos, not pide, r["especialidad"] == "Rápida", r["km"])
+
+        rs = consultas.restaurantes_cerca(con, lat, lon, RADIO_CENA_MAX_KM, 300)
+        rs = [r for r in rs if r["id"] not in excluir]
+        return sorted(rs, key=orden)[:N_OPCIONES]
+    cands = candidatos(con, req.model_copy(update={"dias": 1}), base, sim, frozenset(excluir))
+    buenos = [c for c in cands if c["puntos"] > 0.01] or cands  # sin el relleno, si hay
+    return [c | {"duracion_min": duracion(c)} for c in buenos[:N_OPCIONES]]

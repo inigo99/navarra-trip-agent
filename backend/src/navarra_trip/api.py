@@ -8,13 +8,15 @@ exporta para el móvil o el GPS.
 import json
 import os
 import secrets
+import time
 import xml.etree.ElementTree as ET
+from collections import defaultdict, deque
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi import Path as Ruta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
@@ -126,18 +128,40 @@ def _progreso(inicial: dict, origen: str | None = None) -> StreamingResponse:
     )
 
 
+# planes por IP y hora en la demo pública (0 = sin límite): la clave gratuita de Groq tiene
+# tope diario y un solo visitante podría agotarlo
+LIMITE_HORA = int(os.environ.get("NAVARRA_LIMITE_HORA", "0"))
+_peticiones: dict[str, deque] = defaultdict(deque)
+
+
+def _limitar(request: Request) -> None:
+    """ponytail: en memoria y por proceso; con varios workers, Redis o similar."""
+    if not LIMITE_HORA:
+        return
+    # detrás de Caddy y de la web, la IP real llega en X-Forwarded-For (la primera)
+    ip = (request.headers.get("x-forwarded-for") or request.client.host).split(",")[0].strip()
+    ahora, hechas = time.monotonic(), _peticiones[ip]
+    while hechas and ahora - hechas[0] > 3600:
+        hechas.popleft()
+    if len(hechas) >= LIMITE_HORA:
+        raise HTTPException(429, f"Límite de {LIMITE_HORA} planes por hora: prueba más tarde")
+    hechas.append(ahora)
+
+
 @app.post("/plan")
-def plan(p: Peticion) -> StreamingResponse:
+def plan(p: Peticion, request: Request) -> StreamingResponse:
+    _limitar(request)
     return _progreso({"peticion": p.peticion})
 
 
 @app.post("/plan/{id}/ajustar")
-def ajustar(id: IdPlan, a: Ajuste) -> StreamingResponse:
+def ajustar(id: IdPlan, a: Ajuste, request: Request) -> StreamingResponse:
     """Rehace el plan con el cambio añadido a la petición y sin los lugares quitados.
     ponytail: replanifica todos los días (otros días pueden cambiar); si molesta, rehacer
     solo los días tocados reutilizando el resto."""
     if not a.cambio.strip() and not a.quitar:
         raise HTTPException(422, "Nada que ajustar")
+    _limitar(request)
     doc = _leer(id)
     peticion = doc["peticion"]
     if cambio := a.cambio.strip():
@@ -187,6 +211,8 @@ def a_gpx(doc: dict) -> bytes:
         ET.SubElement(w, "desc").text = desc
 
     plan = doc["plan"]
+    for o in plan.get("opciones") or []:  # peticiones de opciones: sin días ni rutas
+        wpt(o, o["nombre"], o.get("municipio") or o.get("localidad") or "")
     for d in plan["dias"]:
         for p in d["paradas"]:
             wpt(p, p["nombre"], f"Día {d['dia']}, {p['llegada']}")

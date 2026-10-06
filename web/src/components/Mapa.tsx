@@ -64,7 +64,7 @@ export default function Mapa({ plan, onSeleccion }: { plan: Plan; onSeleccion: (
           type: "circle",
           source: "puntos",
           paint: {
-            "circle-radius": ["match", ["get", "tipo"], "parada", 10, "base", 8, 6],
+            "circle-radius": ["match", ["get", "tipo"], ["parada", "opcion"], 10, "base", 8, 6],
             "circle-color": [
               "match",
               ["get", "tipo"],
@@ -82,7 +82,7 @@ export default function Mapa({ plan, onSeleccion }: { plan: Plan; onSeleccion: (
           id: "orden",
           type: "symbol",
           source: "puntos",
-          filter: ["==", ["get", "tipo"], "parada"],
+          filter: ["in", ["get", "tipo"], ["literal", ["parada", "opcion"]]],
           layout: {
             "text-field": ["to-string", ["get", "orden"]],
             "text-size": 11,

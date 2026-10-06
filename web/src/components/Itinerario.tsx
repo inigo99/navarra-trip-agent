@@ -7,7 +7,7 @@ type Props = {
   texto: string;
   quitar: Set<string>;
   onDetalle: (id: string) => void;
-  onQuitar: (id: string) => void;
+  onQuitar?: (id: string) => void; // sin él (demo), no se pueden quitar lugares
   tQuitar: string;
 };
 
@@ -42,16 +42,17 @@ export default function Itinerario({ texto, quitar, onDetalle, onQuitar, tQuitar
           >
             {negrita}
           </button>
-          {!id.startsWith("aloj:") && ( // los alojamientos no se replanifican
-            <button
-              onClick={() => onQuitar(id)}
-              title={tQuitar}
-              aria-label={`${tQuitar} ${negrita}`}
-              className="ml-1 text-xs text-gray-400 hover:text-red-600 print:hidden"
-            >
-              ✕
-            </button>
-          )}
+          {onQuitar &&
+            !id.startsWith("aloj:") && ( // los alojamientos no se replanifican
+              <button
+                onClick={() => onQuitar(id)}
+                title={tQuitar}
+                aria-label={`${tQuitar} ${negrita}`}
+                className="ml-1 text-xs text-gray-400 hover:text-red-600 print:hidden"
+              >
+                ✕
+              </button>
+            )}
         </span>
       );
     });

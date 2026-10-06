@@ -3,7 +3,7 @@
 Agente que diseña escapadas de varios días por Navarra con los datos abiertos del Gobierno de Navarra:
 plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registro de Turismo y la fuente de cada lugar.
 
-> Estado: semanas 1-5 hechas (datos, herramientas + MCP, agente, evaluación y web). Siguiente: despliegue (S6).
+> Estado: semanas 1-6 (datos, herramientas + MCP, agente, evaluación, web y despliegue en Oracle Cloud con Groq).
 
 ## Estructura
 
@@ -52,13 +52,15 @@ demás es código determinista (`planner.py`) y el texto lo compone el código:
   base se ve seguido y en su día; tope de caminatas y de horas andando; con lluvia, monumentos.
 - **Orden** óptimo exacto (Held-Karp), horas al cuarto de hora, comida (o picnic en ruta),
   visitas alargadas si sobra tarde, cena o ronda de pintxos y alojamientos (si hay noche).
+- **Opciones sin itinerario** ("una ruta de monte cerca de Isaba", "bares de pintxos en
+  Estella"): hasta 6 lugares, rutas, bares o restaurantes con su duración y distancia.
 - **Interpretación** con salvaguardas en código: idioma, fechas relativas ("el sábado", "dentro
   de dos meses"), transporte y ritmo solo si la petición los dice, pueblos con alias y erratas.
 
 ```powershell
 ollama pull qwen2.5:7b
 uv run --extra semantica navarra-plan "3 días en Estella, me gusta el románico y la naturaleza"
-$env:NAVARRA_LLM = "anthropic:claude-haiku-4-5"   # opcional, con ANTHROPIC_API_KEY
+$env:NAVARRA_LLM = "groq:openai/gpt-oss-120b"   # opcional, con GROQ_API_KEY (gratis)
 ```
 
 El plan completo (con GeoJSON) queda en `data/plan.json`. Necesita OSRM levantado.
@@ -73,6 +75,12 @@ plan (quitar lugares o pedir cambios). Interfaz en español, inglés o francés.
 cd backend && uv run --extra semantica navarra-api   # http://localhost:8000/docs
 cd web && npm install && npm run dev                 # http://localhost:3000
 ```
+
+## Despliegue
+
+Demo en una VM ARM gratuita de Oracle Cloud (OSRM, API, web y Caddy con HTTPS en Docker) con el
+LLM por la API gratuita de Groq: guía en [`infra/oracle/README.md`](infra/oracle/README.md).
+Sin servidor, la web también se exporta como estática con planes de ejemplo (`web/README.md`).
 
 ## Evaluación
 

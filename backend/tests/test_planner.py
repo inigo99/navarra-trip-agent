@@ -237,6 +237,21 @@ def test_agente_pide_lo_que_falta(con):
     assert s["pregunta"] == "¿Cuántos días dura el viaje?"
 
 
+def test_sin_dias_en_la_peticion_pregunta_aunque_el_llm_los_ponga(con):
+    s = _grafo(con, Requisitos(dias=3, base="Pamplona"), []).invoke(
+        {"peticion": "Quiero ver Navarra desde Pamplona"}
+    )
+    assert s["pregunta"] == "¿Cuántos días dura el viaje?"
+
+
+def test_frases_en_otro_idioma_o_en_bucle_fuera():
+    assert agente._frase_valida("A Romanesque church with a carved portal.", "en")
+    assert not agente._frase_valida(
+        "Explore la capilla, un templo en el corazón de Pamplona.", "en"
+    )
+    assert not agente._frase_valida("Liédenan " * 60, "eu")
+
+
 def test_agente_plan_completo_y_corrige_ids_inventados(con):
     req = Requisitos(dias=2, base="Olite", intereses=["románica"])
     s = _grafo(con, req, ["Visita [mon:inventado]"] * 2).invoke({"peticion": "2 días en Olite"})
@@ -578,3 +593,41 @@ def test_foces_se_amplian_y_cada_interes_abre_un_dia():
     req = Requisitos(dias=2, base="x")
     grupos = planner.agrupar(base, [a, b, foz], req, [None, None], matriz)
     assert [sorted(r["id"] for r in g) for g in grupos] == [["mon:a", "mon:b"], ["esp:foz"]]
+
+
+def test_opciones_de_lugares_sin_itinerario(con):
+    req = Requisitos(tipo="opciones", base="Olite", intereses=["románica"])
+    s = _grafo(con, req, ["Bonita."]).invoke(
+        {"peticion": "Recomiéndame iglesias románicas en Olite"}
+    )
+    plan = s["plan"]
+    assert plan["dias"] == [] and 0 < len(plan["opciones"]) <= planner.N_OPCIONES
+    assert all("románica" in o["nombre"] for o in plan["opciones"])
+    assert "Opciones cerca de Olite" in s["texto"] and "duración: 45 min" in s["texto"]
+    assert "Bonita." in s["texto"] and "Vuelta" not in s["texto"]
+    assert {o["id"] for o in plan["opciones"]} <= planner.ids(plan)
+
+
+def test_dime_bares_da_opciones_sin_preguntar_dias(con):
+    req = Requisitos(base="Olite", intereses=["pintxos"])  # el LLM dice plan y sin días
+    s = _grafo(con, req, []).invoke({"peticion": "Dime bares de pintxos en Olite"})
+    assert "pregunta" not in s
+    ids = [o["id"] for o in s["plan"]["opciones"]]
+    assert ids[0] == "rest:4" and {"bar:n1", "bar:n4"} <= set(ids)  # rest:4: de tapas, al lado
+    assert "**Bar 1** [bar:n1], Olite · a 110 m" in s["texto"]  # en metros, no "a 0 km"
+
+
+def test_opciones_sin_los_quitados_al_ajustar(con):
+    req = Requisitos(base="Olite", intereses=["pintxos"])
+    s = _grafo(con, req, []).invoke({"peticion": "Dime bares en Olite", "excluir": ["rest:4"]})
+    assert "rest:4" not in {o["id"] for o in s["plan"]["opciones"]}
+
+
+def test_duplicados_se_queda_la_visita_mas_larga():
+    mirador = _rec("esp:m", "Miradores de las Bardenas", "natural", 42.2, -1.5) | {
+        "duracion_min": 20
+    }
+    parque = _rec("esp:p", "Parque de las Bardenas", "natural", 42.2, -1.5) | {"duracion_min": 150}
+    otro = _rec("mon:x", "Castillo", "monumento", 42.3, -1.6)
+    ids = [r["id"] for r in planner._sin_duplicados([mirador, otro, parque])]
+    assert sorted(ids) == ["esp:p", "mon:x"]

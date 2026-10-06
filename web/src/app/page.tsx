@@ -3,10 +3,54 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Progreso from "@/components/Progreso";
-import { sse } from "@/lib/api";
+import Link from "next/link";
+import { useEffect } from "react";
+import { DEMO, sse } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
+const REPO = "https://github.com/inigo99/navarra-trip-agent";
+
 export default function Inicio() {
+  return DEMO ? <Ejemplos /> : <Formulario />;
+}
+
+/** Web pública estática: planes generados en local con navarra-demo. */
+function Ejemplos() {
+  const t = useT();
+  const [ejemplos, setEjemplos] = useState<{ id: string; peticion: string }[]>([]);
+  useEffect(() => {
+    fetch("/ejemplos/index.json")
+      .then((r) => r.json())
+      .then(setEjemplos);
+  }, []);
+  return (
+    <main className="mx-auto w-full max-w-2xl p-6">
+      <h1 className="text-3xl font-bold">{t.titulo}</h1>
+      <p className="mt-1 text-gray-500">{t.subtitulo}</p>
+      <p className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+        {t.demo}{" "}
+        <a href={REPO} className="underline">
+          GitHub
+        </a>
+      </p>
+      <h2 className="mt-6 font-bold">{t.ejemplos}</h2>
+      <ul className="mt-2 space-y-2">
+        {ejemplos.map((e) => (
+          <li key={e.id}>
+            <Link
+              href={`/plan/${e.id}`}
+              className="block rounded-lg border p-3 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              {e.peticion}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+
+function Formulario() {
   const t = useT();
   const router = useRouter();
   const [peticion, setPeticion] = useState("");

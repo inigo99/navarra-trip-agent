@@ -7,7 +7,7 @@ import Detalle from "./Detalle";
 import Itinerario from "./Itinerario";
 import Mapa from "./Mapa";
 import Progreso from "./Progreso";
-import { API, type Doc, lugares, obtener, sse } from "@/lib/api";
+import { DEMO, type Doc, gpx, lugares, obtener, sse } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 const boton = "rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800";
@@ -70,7 +70,7 @@ export default function Vista({ id }: { id: string }) {
           )}
         </div>
         <nav className="flex flex-wrap gap-2 print:hidden">
-          <a href={`${API}/plan/${id}/gpx`} className={boton}>
+          <a href={gpx(id)} download className={boton}>
             {t.gpx}
           </a>
           <button onClick={() => window.print()} className={boton}>
@@ -94,7 +94,7 @@ export default function Vista({ id }: { id: string }) {
             texto={doc.texto}
             quitar={quitar}
             onDetalle={setAbierto}
-            onQuitar={alternar}
+            onQuitar={DEMO ? undefined : alternar}
             tQuitar={t.quitar}
           />
         </section>
@@ -103,34 +103,36 @@ export default function Vista({ id }: { id: string }) {
         </section>
       </div>
 
-      <section className="mt-8 rounded-lg border p-4 print:hidden">
-        <h2 className="font-bold">{t.ajustar}</h2>
-        <textarea
-          value={cambio}
-          onChange={(e) => setCambio(e.target.value)}
-          placeholder={t.cambio}
-          maxLength={300}
-          rows={2}
-          className="mt-2 w-full rounded-lg border p-2"
-        />
-        {quitar.size > 0 && (
-          <p className="text-sm text-gray-500">
-            {t.quitados}: {[...quitar].map((q) => porId[q]?.nombre ?? q).join(", ")}
-          </p>
-        )}
-        <button
-          onClick={ajustar}
-          disabled={pasos !== null || (!cambio.trim() && !quitar.size)}
-          className="mt-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-50"
-        >
-          {t.rehacer}
-        </button>
-        {pasos && (
-          <div className="mt-3">
-            <Progreso pasos={pasos} />
-          </div>
-        )}
-      </section>
+      {!DEMO && ( // la demo pública no tiene API: no se puede rehacer
+        <section className="mt-8 rounded-lg border p-4 print:hidden">
+          <h2 className="font-bold">{t.ajustar}</h2>
+          <textarea
+            value={cambio}
+            onChange={(e) => setCambio(e.target.value)}
+            placeholder={t.cambio}
+            maxLength={300}
+            rows={2}
+            className="mt-2 w-full rounded-lg border p-2"
+          />
+          {quitar.size > 0 && (
+            <p className="text-sm text-gray-500">
+              {t.quitados}: {[...quitar].map((q) => porId[q]?.nombre ?? q).join(", ")}
+            </p>
+          )}
+          <button
+            onClick={ajustar}
+            disabled={pasos !== null || (!cambio.trim() && !quitar.size)}
+            className="mt-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-50"
+          >
+            {t.rehacer}
+          </button>
+          {pasos && (
+            <div className="mt-3">
+              <Progreso pasos={pasos} />
+            </div>
+          )}
+        </section>
+      )}
       {aviso && (
         <p role="status" className="mt-3 text-sm">
           {aviso}

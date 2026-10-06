@@ -32,6 +32,7 @@ TABLAS = {
     "esp": "recurso",
     "ruta": "recurso",
     "extra": "recurso",
+    "bod": "recurso",  # sin él, los planes con bodegas contaban como ids inventados
     "aloj": "alojamiento",
     "rest": "restaurante",
     "bar": "bar",
@@ -170,6 +171,7 @@ def validar(fila: dict, r: dict, con, hoy: date, sim=None) -> dict:
         "pregunta_base": bool(pregunta),
         "plan_con_aviso": bool(plan) and bool(plan.get("avisos")),
         "plan_sin_inventar": bool(plan),
+        "opciones": bool(plan) and "opciones" in plan and not pregunta,
     }[esperado]
     if not plan:
         return v
@@ -334,6 +336,7 @@ def informe() -> str:
             ("Normales", {"normal"}),
             ("Imposibles y ambiguas", {"imposible", "ambigua"}),
             ("Euskera", {"euskera"}),
+            ("Opciones (sin itinerario)", {"opciones"}),
         ):
             rs = [r for r in res if r["tipo"] in tipos]
             if not rs:

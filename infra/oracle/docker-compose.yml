@@ -1,0 +1,31 @@
+# Servidor de la demo (Oracle Cloud, VM ARM gratuita): OSRM + API + web + Caddy (HTTPS).
+# Guía: infra/oracle/README.md. El LLM va por API (Groq, gratis): la VM no tiene GPU.
+include:
+  - ../docker-compose.yml  # osrm-prep, osrm-coche, osrm-pie
+
+services:
+  api:
+    build: ../../backend
+    env_file: .env
+    environment:
+      OSRM_COCHE: http://osrm-coche:5000
+      OSRM_PIE: http://osrm-pie:5000
+    volumes: ["../../backend/data:/app/data"]
+    depends_on: [osrm-coche, osrm-pie]
+    restart: unless-stopped
+
+  web:
+    build: ../../web
+    depends_on: [api]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    environment: {DOMINIO: "${DOMINIO}"}  # de .env, que compose lee para ${...}
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy:/data"]
+    depends_on: [web]
+    restart: unless-stopped
+
+volumes:
+  caddy: {}

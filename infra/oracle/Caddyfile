@@ -1,0 +1,5 @@
+# Certificado de Let's Encrypt automático para DOMINIO (p. ej. 1-2-3-4.sslip.io).
+# Sin "encode": comprimir retendría el progreso del plan (SSE) hasta el final.
+{$DOMINIO} {
+	reverse_proxy web:3000
+}

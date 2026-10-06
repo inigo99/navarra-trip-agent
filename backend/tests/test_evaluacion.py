@@ -18,6 +18,7 @@ def test_bateria_y_consultas_coherentes():
         "pregunta_base",
         "plan_con_aviso",
         "plan_sin_inventar",
+        "opciones",
     }
     assert {f["idioma"] for f in filas} == {"es", "en", "fr", "eu"}
     for c in ev.leer_csv("consultas_semanticas.csv"):

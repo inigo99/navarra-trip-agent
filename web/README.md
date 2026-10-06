@@ -13,3 +13,14 @@ inglés o francés según el idioma del navegador; el itinerario, en el idioma d
 
 - `/`: petición y progreso del agente (SSE).
 - `/plan/[id]`: itinerario, mapa, detalle de cada lugar, GPX, PDF (imprimir), enlace para compartir y ajuste del plan.
+
+## Demo pública (estática)
+
+Sin servidor: la web muestra planes de ejemplo generados en local y no permite pedir ni ajustar planes.
+
+```bash
+cd backend && uv run --extra semantica navarra-demo   # escribe web/public/ejemplos (Ollama y OSRM levantados)
+cd web && NEXT_PUBLIC_DEMO=1 npm run build            # exportación estática en web/out
+```
+
+En Vercel: directorio raíz `web` y variable `NEXT_PUBLIC_DEMO=1`.

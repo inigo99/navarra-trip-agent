@@ -7,6 +7,7 @@ license = "MIT"
 dependencies = [
     "duckdb>=1.5.6",
     "fastapi>=0.115",
+    "uvicorn>=0.30",
     "fastmcp>=4.0.10",
     "httpx>=0.27",
     "lancedb>=0.39.0",
@@ -16,6 +17,7 @@ dependencies = [
     "langgraph>=1.2.12",
     "pyproj>=3.8.0",
     "shapely>=2.1.2",
+    "langchain-groq>=0.3",
 ]
 
 [project.scripts]
@@ -27,6 +29,7 @@ navarra-mcp = "navarra_trip.mcp_server:main"
 navarra-plan = "navarra_trip.agente:main"
 navarra-eval = "navarra_trip.evaluacion:main"
 navarra-api = "navarra_trip.api:main"
+navarra-demo = "navarra_trip.demo:main"
 
 [project.optional-dependencies]
 semantica = [
