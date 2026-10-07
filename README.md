@@ -5,8 +5,6 @@ plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registr
 
 **Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (planes de ejemplo; para pedir los tuyos, ejecútalo en local).
 
-> Estado: semanas 1-6 (datos, herramientas + MCP, agente, evaluación, web y despliegue).
-
 ## Estructura
 
 - `backend/`: Python 3.12 + uv (ingesta, herramientas, agente, servidor MCP y API).
