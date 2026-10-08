@@ -268,6 +268,17 @@ def test_agente_plan_completo_y_corrige_ids_inventados(con):
     assert {"base", "parada", "comida", "alojamiento"} <= tipos
 
 
+def test_dias_fijos_al_ajustar_se_quedan_y_no_se_repiten(con):
+    req = Requisitos(dias=2, base="Olite", intereses=["románica"])
+    s = _grafo(con, req, ["Bonito."] * 2).invoke({"peticion": "2 días en Olite"})
+    dia1 = [p["id"] for p in s["plan"]["dias"][0]["paradas"]]
+    s = _grafo(con, req, ["Bonito."] * 2).invoke(
+        {"peticion": "2 días en Olite", "fijos": [None, dia1]}
+    )
+    nuevos = [{p["id"] for p in d["paradas"]} for d in s["plan"]["dias"]]
+    assert nuevos[1] == set(dia1) and not nuevos[0] & set(dia1)
+
+
 def test_agente_redacta_frases_y_el_codigo_las_horas(con):
     req = Requisitos(dias=1, base="Olite", intereses=["cascada"], ritmo="relajado")
     pedido = None
@@ -515,6 +526,17 @@ def test_el_pueblo_se_ve_seguido_y_en_su_dia():
     assert planner.ordenar(base, [a, b], req, matriz, ruta)["en_la_base"]
 
 
+def test_lo_que_sobra_del_pueblo_rellena_dias_cortos():
+    base = {"lat": 42.8, "lon": -1.64}
+    pueblo = [_r(f"mon:p{i}", 42.8 + i / 1000, -1.64) for i in range(8)]
+    fuera = [_r("mon:c", 42.95, -1.64), _r("mon:d", 42.95, -1.62)]
+    req = Requisitos(dias=2, base="x", ritmo="relajado")
+    grupos = planner.agrupar(base, fuera + pueblo, req, [None, None], matriz)
+    excursion = next(g for g in grupos if any(r["id"] == "mon:c" for r in g))
+    assert any(r["id"].startswith("mon:p") for r in excursion)
+    assert sum(len(g) for g in grupos) == 10
+
+
 def test_monte_con_tope_de_esfuerzo():
     base = {"lat": 42.9, "lon": -0.8}
     mesa = _r(
@@ -631,3 +653,21 @@ def test_duplicados_se_queda_la_visita_mas_larga():
     otro = _rec("mon:x", "Castillo", "monumento", 42.3, -1.6)
     ids = [r["id"] for r in planner._sin_duplicados([mirador, otro, parque])]
     assert sorted(ids) == ["esp:p", "mon:x"]
+
+
+def test_fallos_de_la_evaluacion_con_groq_y_3b(con):
+    # o04: inglés sin "the/and"; e12: euskera sin "eta"
+    assert agente.idioma_de("Suggest some Romanesque churches near Sangüesa") == "en"
+    assert agente.idioma_de("Nafarroa ikusi nahi dut") == "eu"
+    # e04/e05/e08: la base declinada o una palabra que no es pueblo ('Asteburua' = fin de semana)
+    assert planner.lugar_en_texto(con, "Asteburua Erriberrin, gazteluak eta ardoa")
+    assert planner.lugar_en_texto(con, "Nafarroa ikusi nahi dut") is None
+    s = _grafo(con, Requisitos(dias=2, base="Asteburua"), ["Bonito."] * 2).invoke(
+        {"peticion": "Asteburua Erriberrin, gazteluak eta ardoa"}
+    )
+    assert not s.get("pregunta") and "Olite" in s["base"]["nombre"]
+    # n19: "fin de semana" son 2 días aunque el LLM ponga 0
+    s = _grafo(con, Requisitos(base="Olite"), ["Bonito."] * 2).invoke(
+        {"peticion": "Fin de semana en Olite con perro"}
+    )
+    assert not s.get("pregunta") and s["requisitos"].dias == 2

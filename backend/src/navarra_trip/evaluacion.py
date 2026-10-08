@@ -2,7 +2,7 @@
 
     navarra-eval plan [--llm ollama:qwen2.5:7b] [--solo n01,x04]   -> data/eval/<llm>.jsonl
     navarra-eval juez data/eval/<llm>.jsonl                        -> rúbrica 1-5 por plan
-    navarra-eval calibrar data/eval/calibracion.csv                -> acuerdo juez / humano
+    navarra-eval calibrar data/eval/calibracion_<llm>.csv          -> acuerdo juez / humano
     navarra-eval embeddings                                        -> recall@5 y MRR por modelo
     navarra-eval informe                                           -> data/eval/informe.md
 
@@ -89,9 +89,16 @@ def ejecutar(grafo, fila: dict) -> dict:
     except (httpx.ConnectError, ConnectionError):
         raise  # OSRM u Ollama apagados: es un fallo del montaje, no un resultado del agente
     except Exception as e:  # una petición que rompe el agente es un resultado, no un fallo
+        if type(e).__name__ == "RateLimitError":  # cuota diaria de Groq: tampoco es del agente
+            raise SystemExit(
+                f"Cuota agotada ({e}). Vuelve a lanzar más tarde: sigue donde iba."
+            ) from e
         out["error"] = f"{type(e).__name__}: {e}"
     out["segundos"] = round(time.perf_counter() - t0, 1)
     return out
+
+
+REPETIR = re.compile(r"ConnectError|RateLimitError")
 
 
 def bateria(llm_nombre: str, solo: set[str] | None = None) -> Path:
@@ -99,8 +106,13 @@ def bateria(llm_nombre: str, solo: set[str] | None = None) -> Path:
     archivo = _archivo(llm_nombre)
     hechos = set()
     if archivo.exists():
-        # las que fallaron por conexión (de versiones anteriores) se repiten
-        hechos = {r["id"] for r in _leer(archivo) if "ConnectError" not in r.get("error", "")}
+        # las que fallaron por conexión o cuota (de versiones anteriores) se quitan y se repiten
+        lineas = [r for r in _leer(archivo) if not REPETIR.search(r.get("error", ""))]
+        archivo.write_text(
+            "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in lineas),
+            encoding="utf-8",
+        )
+        hechos = {r["id"] for r in lineas}
     con = consultas.conectar()
     grafo = agente.construir(agente.crear_llm(llm_nombre), con)
     filas = [f for f in leer_csv("peticiones.csv") if not solo or f["id"] in solo]
@@ -239,8 +251,10 @@ Puntúa de 1 (muy mal) a 5 (excelente) cada criterio. Sé exigente: un 5 es raro
 def juzgar(archivo: Path, llm_nombre: str = "ollama:qwen2.5:7b") -> None:
     llm = agente.crear_llm(llm_nombre).with_structured_output(Rubrica)
     lineas = _leer(archivo)
+    caido = None
     for r in lineas:
-        if r.get("plan") and "juez" not in r:
+        # los que fallaron (Ollama apagado, salida rota) se vuelven a juzgar
+        if r.get("plan") and "error" in r.get("juez", {"error": ""}):
             datos = json.dumps(agente._para_llm(r["plan"]), ensure_ascii=False)
             msgs = [
                 ("system", JUEZ),
@@ -248,6 +262,9 @@ def juzgar(archivo: Path, llm_nombre: str = "ollama:qwen2.5:7b") -> None:
             ]
             try:
                 r["juez"] = llm.invoke(msgs).model_dump() | {"modelo": llm_nombre}
+            except (httpx.ConnectError, ConnectionError) as e:
+                caido = e  # Ollama apagado: se guarda lo hecho y se para
+                break
             except Exception as e:
                 r["juez"] = {"error": str(e)}
             print(r["id"], r["juez"])
@@ -255,9 +272,16 @@ def juzgar(archivo: Path, llm_nombre: str = "ollama:qwen2.5:7b") -> None:
         "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in lineas),
         encoding="utf-8",
     )
+    if caido:
+        raise SystemExit(
+            f"Sin conexión con el juez ({caido}). ¿Está Ollama abierto? Vuelve a lanzar."
+        )
     con_plan = [r for r in lineas if r.get("juez") and "error" not in r["juez"]]
     muestra = random.Random(0).sample(con_plan, min(20, len(con_plan)))
-    destino = SALIDA / "calibracion.csv"
+    # una por modelo y sin pisar: juzgar otro modelo borraba las notas puestas a mano
+    destino = SALIDA / f"calibracion_{archivo.stem}.csv"
+    if destino.exists():
+        return
     with destino.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         crit = ["utilidad", "coherencia", "fidelidad", "redaccion"]

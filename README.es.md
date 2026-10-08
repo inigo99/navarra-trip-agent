@@ -107,8 +107,19 @@ embeddings | informe`). Resultados con qwen2.5:7b en local (RTX de 8 GB), octubr
 
 - **Juez calibrado**: frente a 20 planes puntuados a mano, diferencia media de 0,35-0,7 puntos y
   85-100 % de notas a ±1 según el criterio.
-- **Modelos**: llama3.1:8b quedó en 92 % de comportamiento esperado y 130 s de media (no cabe en
-  8 GB con su contexto); qwen2.5:7b, 100 % y 14 s.
+- **Modelos** (peticiones normales salvo que se indique):
+
+  | | qwen2.5:7b | qwen2.5:3b | Groq gpt-oss-120b | llama3.1:8b | qwen2.5:1.5b |
+  |---|---|---|---|---|---|
+  | Comportamiento esperado | 100 % | 100 % | 100 % | 92 % | 97 % |
+  | Idioma del texto | 100 % | 100 % | 100 % | 69 % | 93 % |
+  | Juez (utilidad · coherencia · fidelidad · redacción) | 4,0 · 4,2 · 4,0 · 4,0 | 3,9 · 4,2 · 4,0 · 4,0 | 4,0 · 4,3 · 4,0 · 4,0 | – | – |
+  | Imposibles · euskera (comportamiento) | 100 · 83 % | 87 · 100 % | 93 · 100 % | 87 · 67 % | 87 · 67 % |
+  | Latencia media | 14 s | 11 s | 24 s | 130 s | 29 s (bucles de hasta 11 min) |
+
+  Un modelo 17 veces mayor (gpt-oss-120b) no mejora al 7B: el código compone el plan y el LLM
+  solo interpreta y escribe frases. Groq sirve para alojarlo sin GPU (unas 55 peticiones al día gratis).
+
 - **Embeddings**: multilingual-e5-base, recall@5 0,70 y MRR 0,90, frente a 0,59 y 0,83 de e5-small.
 - **Lo que la evaluación obligó a cambiar**: el idioma y las fechas se detectan en código; el
   texto lo compone el código (el modelo ponía la vuelta después de la cena o se saltaba lugares);

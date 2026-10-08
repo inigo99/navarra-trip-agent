@@ -156,9 +156,8 @@ def plan(p: Peticion, request: Request) -> StreamingResponse:
 
 @app.post("/plan/{id}/ajustar")
 def ajustar(id: IdPlan, a: Ajuste, request: Request) -> StreamingResponse:
-    """Rehace el plan con el cambio añadido a la petición y sin los lugares quitados.
-    ponytail: replanifica todos los días (otros días pueden cambiar); si molesta, rehacer
-    solo los días tocados reutilizando el resto."""
+    """Rehace el plan sin los lugares quitados. Si solo se quitan lugares, los días sin
+    ninguno quitado se quedan igual; con un cambio en texto, se replanifica todo."""
     if not a.cambio.strip() and not a.quitar:
         raise HTTPException(422, "Nada que ajustar")
     _limitar(request)
@@ -167,7 +166,11 @@ def ajustar(id: IdPlan, a: Ajuste, request: Request) -> StreamingResponse:
     if cambio := a.cambio.strip():
         peticion = f"{peticion.rstrip('. ')}. {cambio}"
     quitados = {*a.quitar, *(doc["plan"].get("excluidos") or [])}  # se acumulan entre ajustes
-    return _progreso({"peticion": peticion, "excluir": sorted(quitados)}, origen=id)
+    inicial = {"peticion": peticion, "excluir": sorted(quitados)}
+    if not cambio:
+        dias = [[p["id"] for p in d["paradas"]] for d in doc["plan"]["dias"]]
+        inicial["fijos"] = [None if quitados & set(d) else d for d in dias]
+    return _progreso(inicial, origen=id)
 
 
 @app.get("/plan/{id}")

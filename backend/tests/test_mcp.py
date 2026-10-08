@@ -206,3 +206,13 @@ def test_actividades_oficinas_y_aves():
 def test_consulta_sin_indice_cae_a_busqueda_por_texto(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)  # sin data/lancedb
     assert _llamar("buscar_recursos", {"consulta": "olite"})[0]["id"] == "mon:3153"
+
+
+def test_herramientas_anotadas_de_solo_lectura():
+    async def go():
+        async with Client(mcp_server.mcp) as c:
+            return {t.name: t.annotations for t in await c.list_tools()}
+
+    for nombre, a in asyncio.run(go()).items():
+        assert a.read_only_hint and not a.destructive_hint and a.idempotent_hint
+        assert a.open_world_hint == (nombre == "prevision_tiempo")

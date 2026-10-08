@@ -115,23 +115,50 @@ def lugar(con, nombre: str) -> dict | None:
     return None
 
 
-def _parecido(con, x: str) -> str | None:
-    """Nombre más parecido; 'Pamplona / Iruña' cuenta como 'pamplona' e 'iruna'."""
+def _partes(con) -> set[str]:
+    """Nombres de pueblo sin tildes; 'Pamplona / Iruña' cuenta como 'pamplona' e 'iruna'."""
     nombres = consultas._filas(
         con,
         "SELECT DISTINCT localidad AS n FROM alojamiento UNION SELECT municipio FROM recurso",
         [],
     )
-    partes = {
+    return {
         p.strip()
         for f in nombres
         if f["n"]
         for p in re.split(r"[/-]", consultas._sin_tildes(f["n"]))
     }
+
+
+def _parecido(con, x: str) -> str | None:
+    """Nombre más parecido."""
+    partes = _partes(con)
     x = re.sub(r"(tik|n)$", "", x)  # euskera: Tuteratik, Lizarran
     # con 0,8, 'Vitoria' daba 'Viloria' y 'Biarritz' 'Ciáurriz'
     m = difflib.get_close_matches(x, partes | set(ALIAS), n=1, cutoff=0.87)
     return m and ALIAS.get(m[0], m[0]) or None
+
+
+def _sin_caso(w: str) -> list[str]:
+    """Una palabra y sus formas sin declinación vasca: Lizarran, Tuteratik, Garesen, Iruñean."""
+    out = [w]
+    for suf in ("etik", "tik", "ean", "an", "en", "n"):
+        if w.endswith(suf) and len(w) - len(suf) >= 4:
+            out.append(w[: -len(suf)])
+            if suf == "ean":
+                out.append(w[:-3] + "a")  # Iruñean -> Iruña
+    return out
+
+
+def lugar_en_texto(con, texto: str) -> dict | None:
+    """El primer pueblo que se nombra tal cual en la petición. Si el LLM no da la base o da
+    otra palabra ('Asteburua' = fin de semana; 'Plazaola', la vía verde), se busca aquí."""
+    partes = _partes(con) | set(ALIAS)
+    for w in re.findall(r"[a-z]{4,}", consultas._sin_tildes(texto)):
+        for f in _sin_caso(w):
+            if f in partes:
+                return lugar(con, ALIAS.get(f, f))
+    return None
 
 
 def similitud_texto(con) -> Similitud:
@@ -506,8 +533,22 @@ def agrupar(
             if dia:
                 break
         libres = [i for i in libres if i not in dia]
-        grupos.append([cands[i - 1] for i in dia])
-    return grupos
+        grupos.append(dia)
+    # Lo que sobre del pueblo base rellena los días que acaban pronto (se ve a la ida o a la
+    # vuelta): Estella volvía a las 16:00 el día de Los Arcos con el Puy y Jus del Castillo sin usar
+    for dia in grupos:
+        while dia and len(dia) < paradas:
+            orden, coste = _mejor_orden(m, dia)
+            opciones = [
+                o
+                for o in ((desvio(orden, j), -cands[j - 1]["puntos"], j) for j in libres)
+                if o[2] in en_base and o[0] <= DESVIO_MAX and cabe([*dia, o[2]], coste + o[0])
+            ]
+            if not opciones:
+                break
+            dia.append(j := min(opciones)[2])
+            libres.remove(j)
+    return [[cands[i - 1] for i in dia] for dia in grupos]
 
 
 def _w(m: list[list[float | None]], a: int, b: int) -> float:
@@ -685,11 +726,13 @@ def _suma(*minutos) -> float | None:
 
 
 def comida(con, parada: dict, modo: str, usados: set[str], pedidos=frozenset()) -> dict | None:
-    """Restaurante más cercano a la parada de antes de comer, sin repetir entre días."""
-    filas = consultas.restaurantes_cerca(
-        con, parada["lat"], parada["lon"], RADIO_COMIDA_KM[modo], limite=20
-    )
-    return _elegir(filas, usados, pedidos)
+    """Restaurante más cercano a la parada de antes de comer, sin repetir entre días. Si no hay
+    ninguno en el radio, el doble (Larra-Belagua se quedaba sin comida: Isaba está a 10,8 km)."""
+    for radio in (RADIO_COMIDA_KM[modo], 2 * RADIO_COMIDA_KM[modo]):
+        filas = consultas.restaurantes_cerca(con, parada["lat"], parada["lon"], radio, limite=20)
+        if c := _elegir(filas, usados, pedidos):
+            return c
+    return None
 
 
 def alojamientos(con, base: dict, req: Requisitos, n: int = 3) -> list[dict]:

@@ -53,6 +53,19 @@ def test_ajustar_quita_lugares_y_guarda_otro_plan(con, monkeypatch, tmp_path):  
     assert cli.post(f"/plan/{orig['id']}/ajustar", json={}).status_code == 422
 
 
+def test_quitar_sin_cambio_deja_igual_los_otros_dias(con, monkeypatch, tmp_path):  # noqa: F811
+    req = Requisitos(dias=2, base="Olite", intereses=["románica"])
+    monkeypatch.setattr(api, "_grafo", lambda: _grafo(con, req, ["Bonito."] * 4))
+    monkeypatch.setattr(api, "PLANES", tmp_path)
+    cli = TestClient(api.app)
+    orig = _eventos(cli.post("/plan", json={"peticion": "Dos días en Olite."}))[-1]
+    dias = [[p["id"] for p in d["paradas"]] for d in orig["plan"]["dias"]]
+    quitar = dias[0][0]
+    nuevo = _eventos(cli.post(f"/plan/{orig['id']}/ajustar", json={"quitar": [quitar]}))[-1]
+    nuevos = [[p["id"] for p in d["paradas"]] for d in nuevo["plan"]["dias"]]
+    assert sorted(nuevos[1]) == sorted(dias[1]) and quitar not in nuevos[0]
+
+
 def test_demo_exporta_planes_fichas_e_indice(con, tmp_path):  # noqa: F811
     from navarra_trip import demo
 

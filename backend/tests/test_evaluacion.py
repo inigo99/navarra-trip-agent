@@ -81,3 +81,18 @@ def test_mas_de_7_dias_se_recorta_con_aviso(con):  # noqa: F811
     r = ev.ejecutar(_grafo(con, Requisitos(dias=10, base="Olite"), ["x"] * 3), _fila(dias="7"))
     assert len(r["plan"]["dias"]) == 7
     assert any("7 días" in a for a in r["plan"]["avisos"])
+
+
+def test_cuota_agotada_para_la_bateria_y_no_cuenta_como_error():
+    import pytest
+
+    class RateLimitError(Exception):
+        pass
+
+    class Grafo:
+        def invoke(self, _):
+            raise RateLimitError("429 tokens per day")
+
+    with pytest.raises(SystemExit):
+        ev.ejecutar(Grafo(), {"id": "n01", "tipo": "normal", "peticion": "x"})
+    assert ev.REPETIR.search("RateLimitError: 429")

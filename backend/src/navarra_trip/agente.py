@@ -67,6 +67,7 @@ DURACION = re.compile(
     r"\d|\b(dias?|days?|jours?|journees?|semanas?|weeks?|semaines?|finde|fin de semana|weekend"
     r"|week-end|noches?|nights?|nuits?|egun\w*|asteburu\w*)\b"
 )
+FINDE = re.compile(r"\b(finde|fin de semana|weekend|week-end|asteburu\w*)\b")
 DIAS_SEMANA = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
 REDACTAR = """Eres un guía de Navarra. Para cada lugar del JSON escribe en {idioma} una o dos
@@ -102,6 +103,7 @@ NO_ENCONTRADO = {
 class Estado(TypedDict, total=False):
     peticion: str
     excluir: list[str]  # ids quitados al ajustar un plan
+    fijos: list[list[str] | None]  # al quitar lugares, días que se quedan como estaban (ids)
     requisitos: Requisitos
     pregunta: str
     base: dict
@@ -154,11 +156,15 @@ def construir(
         if req.dias > planner.MAX_DIAS:
             avisos.append(f"El plan se limita a {planner.MAX_DIAS} días (pediste {req.dias}).")
             req.dias = planner.MAX_DIAS
+        if not req.dias and req.tipo == "plan" and FINDE.search(texto):
+            req.dias = 2  # gpt-oss dejaba en 0 "Fin de semana en Burguete"
+        if not req.base and (b := planner.lugar_en_texto(con, s["peticion"])):
+            req.base = b["nombre"]  # el LLM no la vio: "Lau egun Tuteratik" sin base
         necesita = ("base",) if req.tipo == "opciones" else ("dias", "base")
         falta = [FALTA[req.idioma][c] for c in necesita if not getattr(req, c)]
         if falta:
             return {"requisitos": req, "pregunta": " ".join(falta)}
-        base = planner.lugar(con, req.base)
+        base = planner.lugar(con, req.base) or planner.lugar_en_texto(con, s["peticion"])
         if base is None:
             return {"requisitos": req, "pregunta": NO_ENCONTRADO[req.idioma].format(req.base)}
         return {"requisitos": req, "base": base}
@@ -206,8 +212,22 @@ def construir(
         return {"prevision": dias}
 
     def agrupar(s: Estado) -> Estado:
-        req = s["requisitos"]
-        grupos = planner.agrupar(s["base"], s["candidatos"], req, s["prevision"], matriz)
+        req, cands, prev = s["requisitos"], s["candidatos"], s["prevision"]
+        por_id = {r["id"]: r for r in cands}
+        fijos = s.get("fijos") or []
+        if len(fijos) != len(prev) or any(i not in por_id for f in fijos if f for i in f):
+            fijos = [None] * len(prev)  # la petición se interpretó distinto: todo de nuevo
+        usados = {i for f in fijos if f for i in f}
+        nuevos = iter(
+            planner.agrupar(
+                s["base"],
+                [r for r in cands if r["id"] not in usados],
+                req,
+                [p for f, p in zip(fijos, prev, strict=True) if not f],
+                matriz,
+            )
+        )
+        grupos = [[por_id[i] for i in f] if f else next(nuevos) for f in fijos]
         for i, p in enumerate(s["prevision"]):
             if p and p["mal_tiempo"]:
                 avisos.append(
@@ -447,6 +467,13 @@ PALABRAS = {  # frecuentes y de viaje: las peticiones son cortas
         "in",
         "day",
         "days",
+        "some",
+        "near",
+        "around",
+        "best",
+        "where",
+        "what",
+        "trip",
         "lunch",
         "return",
         "arrival",
@@ -465,6 +492,9 @@ PALABRAS = {  # frecuentes y de viaje: las peticiones son cortas
         "au",
         "jours",
         "journee",
+        "pres",
+        "quelques",
+        "idees",
     },
     "eu": {
         "eta",
@@ -480,6 +510,9 @@ PALABRAS = {  # frecuentes y de viaje: las peticiones son cortas
         "eguna",
         "bazkaria",
         "itzulera",
+        "nahi",
+        "dut",
+        "ikusi",
     },
 }
 

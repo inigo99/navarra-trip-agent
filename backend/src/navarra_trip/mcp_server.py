@@ -21,6 +21,12 @@ mcp = FastMCP(
 )
 
 
+# todas solo leen; solo la previsión sale a un servicio externo (Open-Meteo). Sin las cuatro,
+# los clientes no pueden avisar antes de llamar (y el directorio de OpenAI rechaza la herramienta)
+LECTURA = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
+LOCAL, EXTERNA = LECTURA | {"openWorldHint": False}, LECTURA | {"openWorldHint": True}
+
+
 @cache
 def _db():
     return consultas.conectar()
@@ -30,7 +36,7 @@ def _con():
     return consultas.preparar(_db().cursor())  # un cursor por llamada: DuckDB no es thread-safe
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def buscar_recursos(
     consulta: str | None = None,
     categoria: str | None = None,
@@ -64,7 +70,7 @@ def buscar_recursos(
     )
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def recursos_cerca(
     lat: float,
     lon: float,
@@ -79,7 +85,7 @@ def recursos_cerca(
     return consultas.recursos_cerca(_con(), lat, lon, radio_km, categoria, subcategoria, limite)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def alojamientos_cerca(
     lat: float, lon: float, radio_km: float = 5, tipo: str | None = None, limite: int = 20
 ) -> list[dict]:
@@ -88,20 +94,20 @@ def alojamientos_cerca(
     return consultas.alojamientos_cerca(_con(), lat, lon, radio_km, tipo, limite)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def restaurantes_cerca(lat: float, lon: float, radio_km: float = 5, limite: int = 20) -> list[dict]:
     """Restaurantes del Registro de Turismo de Navarra, del más cercano al más lejano."""
     return consultas.restaurantes_cerca(_con(), lat, lon, radio_km, limite)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def bares_cerca(lat: float, lon: float, radio_km: float = 1, limite: int = 50) -> list[dict]:
     """Bares, pubs y cafeterías (OpenStreetMap) y restaurantes con tapas y raciones (Registro de
     Turismo), del más cercano al más lejano. Para pintxos. Horarios casi nunca: confirmarlos."""
     return consultas.bares_cerca(_con(), lat, lon, radio_km, limite)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def actividades_cerca(
     lat: float, lon: float, radio_km: float = 15, actividad: str | None = None, limite: int = 20
 ) -> list[dict]:
@@ -110,13 +116,13 @@ def actividades_cerca(
     return consultas.actividades_cerca(_con(), lat, lon, radio_km, actividad, limite)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def oficinas_turismo(lat: float, lon: float, radio_km: float = 50) -> list[dict]:
     """Oficinas de turismo más cercanas (teléfono, email y web oficiales)."""
     return consultas.oficinas_cerca(_con(), lat, lon, radio_km)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def aves(zona: str | None = None, presencia: str | None = None) -> list[dict]:
     """Aves destacadas de Navarra (turismo ornitológico): especie, cuándo está (presencia:
     'residente', 'estival', 'invernante'), dificultad de observación y zonas ('Montaña',
@@ -124,28 +130,28 @@ def aves(zona: str | None = None, presencia: str | None = None) -> list[dict]:
     return consultas.aves(_con(), zona, presencia)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def recurso(id: str) -> dict | None:
     """Ficha completa de un recurso por su id (p. ej. 'mon:3153'): descripción entera, fuente
     de la descripción, imagen, web, horario si lo hay (si no, 'consultar horario')."""
     return consultas.recurso(_con(), id)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def ruta(puntos: list[list[float]], modo: str = "coche") -> dict:
     """Distancia y tiempo reales por carretera (OSRM) recorriendo los puntos en orden.
     puntos: [[lat, lon], ...], al menos 2. modo: 'coche' o 'pie'. Devuelve km, minutos y tramos."""
     return rutas.ruta([tuple(p) for p in puntos], modo)
 
 
-@mcp.tool
+@mcp.tool(annotations=EXTERNA)
 def prevision_tiempo(lat: float, lon: float, dias: int = 7) -> list[dict]:
     """Previsión diaria (Open-Meteo, hasta 16 días): descripción, máx./mín., lluvia y
     mal_tiempo=true cuando conviene proponer planes bajo techo."""
     return tiempo.prevision(lat, lon, dias)
 
 
-@mcp.tool
+@mcp.tool(annotations=LOCAL)
 def conjuntos() -> list[dict]:
     """Qué datos hay cargados: tabla, número de filas, fuente y licencia."""
     con = _con()

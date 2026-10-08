@@ -107,8 +107,19 @@ embeddings | informe`). Results with qwen2.5:7b running locally (8 GB RTX), Octo
 
 - **Calibrated judge**: against 20 hand-scored plans, a mean difference of 0.35-0.7 points and
   85-100% of scores within ±1, depending on the criterion.
-- **Models**: llama3.1:8b reached 92% expected behaviour with a 130 s mean (it does not fit in
-  8 GB with its context); qwen2.5:7b reached 100% and 14 s.
+- **Models** (regular requests unless stated):
+
+  | | qwen2.5:7b | qwen2.5:3b | Groq gpt-oss-120b | llama3.1:8b | qwen2.5:1.5b |
+  |---|---|---|---|---|---|
+  | Expected behaviour | 100% | 100% | 100% | 92% | 97% |
+  | Language of the text | 100% | 100% | 100% | 69% | 93% |
+  | Judge (usefulness · coherence · faithfulness · writing) | 4.0 · 4.2 · 4.0 · 4.0 | 3.9 · 4.2 · 4.0 · 4.0 | 4.0 · 4.3 · 4.0 · 4.0 | – | – |
+  | Impossible · Basque (behaviour) | 100 · 83% | 87 · 100% | 93 · 100% | 87 · 67% | 87 · 67% |
+  | Mean latency | 14 s | 11 s | 24 s | 130 s | 29 s (loops up to 11 min) |
+
+  A model 17 times larger (gpt-oss-120b) does not beat the 7B: code assembles the plan and the LLM
+  only interprets the request and writes sentences. Groq is for hosting it without a GPU (about 55 free requests a day).
+
 - **Embeddings**: multilingual-e5-base, recall@5 0.70 and MRR 0.90, versus 0.59 and 0.83 for e5-small.
 - **What the evaluation forced me to change**: language and dates are detected in code; the
   text is assembled by code (the model put the trip home after dinner or skipped places);
