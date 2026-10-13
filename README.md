@@ -117,6 +117,7 @@ embeddings | informe`). Results with qwen2.5:7b running locally (8 GB RTX), Octo
   | Impossible · Basque (behaviour) | 100 · 83% | 87 · 100% | 93 · 100% | 87 · 67% | 87 · 67% |
   | Mean latency | 14 s | 11 s | 24 s | 130 s | 29 s (loops up to 11 min) |
 
+  The 3b and Groq were re-run after fixing Basque town names and "weekend"; the other models are from before those fixes.
   A model 17 times larger (gpt-oss-120b) does not beat the 7B: code assembles the plan and the LLM
   only interprets the request and writes sentences. Groq is for hosting it without a GPU (about 55 free requests a day).
 

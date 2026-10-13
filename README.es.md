@@ -117,6 +117,7 @@ embeddings | informe`). Resultados con qwen2.5:7b en local (RTX de 8 GB), octubr
   | Imposibles · euskera (comportamiento) | 100 · 83 % | 87 · 100 % | 93 · 100 % | 87 · 67 % | 87 · 67 % |
   | Latencia media | 14 s | 11 s | 24 s | 130 s | 29 s (bucles de hasta 11 min) |
 
+  El 3b y Groq se repitieron tras corregir los pueblos en euskera y "fin de semana"; los demás modelos son de antes.
   Un modelo 17 veces mayor (gpt-oss-120b) no mejora al 7B: el código compone el plan y el LLM
   solo interpreta y escribe frases. Groq sirve para alojarlo sin GPU (unas 55 peticiones al día gratis).
 
