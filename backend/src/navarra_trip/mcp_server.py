@@ -58,8 +58,8 @@ def buscar_recursos(
             from navarra_trip.tools.semantica import buscar_semantica
 
             return buscar_semantica(_con(), consulta, k=limite, categoria=categoria)
-        except (ImportError, ValueError, FileNotFoundError):
-            pass  # sin el extra 'semantica' o sin índice: búsqueda por texto
+        except (ImportError, ValueError, OSError):
+            pass  # sin índice o sin modelo: búsqueda por texto
     return consultas.buscar_recursos(
         _con(),
         texto=consulta,

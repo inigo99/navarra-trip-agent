@@ -11,29 +11,39 @@ import { useT } from "@/lib/i18n";
 const REPO = "https://github.com/inigo99/navarra-trip-agent";
 
 export default function Inicio() {
-  return DEMO ? <Ejemplos /> : <Formulario />;
+  const t = useT();
+  return (
+    <main className="mx-auto w-full max-w-2xl p-6">
+      <h1 className="text-3xl font-bold">{t.titulo}</h1>
+      <p className="mt-1 text-gray-500">{t.subtitulo}</p>
+      {DEMO ? (
+        <p className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          {t.demo}{" "}
+          <a href={REPO} className="underline">
+            GitHub
+          </a>
+        </p>
+      ) : (
+        <Formulario />
+      )}
+      <Ejemplos />
+    </main>
+  );
 }
 
-/** Web pública estática: planes generados en local con navarra-demo. */
+/** Planes generados en local con navarra-demo (public/ejemplos). */
 function Ejemplos() {
   const t = useT();
   const [ejemplos, setEjemplos] = useState<{ id: string; peticion: string }[]>([]);
   useEffect(() => {
     fetch("/ejemplos/index.json")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .then(setEjemplos);
   }, []);
+  if (!ejemplos.length) return null;
   return (
-    <main className="mx-auto w-full max-w-2xl p-6">
-      <h1 className="text-3xl font-bold">{t.titulo}</h1>
-      <p className="mt-1 text-gray-500">{t.subtitulo}</p>
-      <p className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-        {t.demo}{" "}
-        <a href={REPO} className="underline">
-          GitHub
-        </a>
-      </p>
-      <h2 className="mt-6 font-bold">{t.ejemplos}</h2>
+    <>
+      <h2 className="mt-8 font-bold">{t.ejemplos}</h2>
       <ul className="mt-2 space-y-2">
         {ejemplos.map((e) => (
           <li key={e.id}>
@@ -46,7 +56,7 @@ function Ejemplos() {
           </li>
         ))}
       </ul>
-    </main>
+    </>
   );
 }
 
@@ -71,21 +81,19 @@ function Formulario() {
           setPregunta(e.pregunta);
           setPasos(null);
         } else if (e.error) {
-          setError(e.error);
+          setError(e.error === "cupo" ? t.cupo : e.error);
           setPasos(null);
         } else if (e.id) router.push(`/plan/${e.id}`);
       });
     } catch (e) {
-      setError(String(e));
+      setError(String(e).includes("cupo") ? t.cupo : String(e).replace(/^Error: /, ""));
       setPasos(null);
     }
   }
 
   const ocupado = pasos !== null;
   return (
-    <main className="mx-auto w-full max-w-2xl p-6">
-      <h1 className="text-3xl font-bold">{t.titulo}</h1>
-      <p className="mt-1 text-gray-500">{t.subtitulo}</p>
+    <>
       <form
         className="mt-6 space-y-3"
         onSubmit={(e) => {
@@ -129,6 +137,7 @@ function Formulario() {
         </div>
       )}
       {error && <p className="mt-4 text-red-600">{error}</p>}
-    </main>
+      {!ocupado && !error && <p className="mt-3 text-sm text-gray-500">{t.lento}</p>}
+    </>
   );
 }

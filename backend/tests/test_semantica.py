@@ -77,17 +77,17 @@ def _con():
 
 def test_indexar_y_buscar(tmp_path):
     con = _con()
-    assert indexar(con, emb_falso, tmp_path) == 3
-    r = buscar_semantica(con, "una cascada", k=2, emb=emb_falso, ruta=tmp_path)
+    assert indexar(con, emb_falso, tmp_path / "i.npz") == 3
+    r = buscar_semantica(con, "una cascada", k=2, emb=emb_falso, ruta=tmp_path / "i.npz")
     assert r[0]["id"] == "esp:1" and r[0]["similitud"] > 0.9
     assert r[0]["nombre"] == "Nacedero del Urederra"  # datos completos desde DuckDB
 
 
 def test_filtro_por_categoria(tmp_path):
     con = _con()
-    indexar(con, emb_falso, tmp_path)
+    indexar(con, emb_falso, tmp_path / "i.npz")
     r = buscar_semantica(
-        con, "una cascada", k=3, categoria="monumento", emb=emb_falso, ruta=tmp_path
+        con, "una cascada", k=3, categoria="monumento", emb=emb_falso, ruta=tmp_path / "i.npz"
     )
     assert {x["id"] for x in r} == {"mon:1", "mon:2"}
 
@@ -95,7 +95,7 @@ def test_filtro_por_categoria(tmp_path):
 def test_el_estilo_se_indexa(tmp_path):
     con = _con()
     textos = []
-    indexar(con, lambda t, tipo: textos.extend(t) or emb_falso(t, tipo), tmp_path)
+    indexar(con, lambda t, tipo: textos.extend(t) or emb_falso(t, tipo), tmp_path / "i.npz")
     assert any("Estilo Románico" in t for t in textos)
 
 

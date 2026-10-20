@@ -4,7 +4,7 @@ Una VM ARM gratuita de Oracle con OSRM, la API, la web y Caddy (HTTPS); el LLM, 
 gratuita de Groq (la VM no tiene GPU). Funciona aunque tu equipo esté apagado.
 
 ```
-navegador ──https──▶ Caddy ──▶ web (Next.js) ──/api──▶ API (FastAPI) ──▶ OSRM, DuckDB, LanceDB
+navegador ──https──▶ Caddy ──▶ web (Next.js) ──/api──▶ API (FastAPI) ──▶ OSRM, DuckDB, índice numpy
                                                              └──────────▶ Groq (LLM)
 ```
 
@@ -35,12 +35,11 @@ curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker ubuntu &&
 
 ## 3. Código y datos
 
-Los datos no están en git: se copian desde tu equipo (desde la carpeta del repo, en PowerShell).
+La base de datos y el índice semántico ya están en git (`backend/data`); el modelo ONNX se descarga
+solo la primera vez que se usa.
 
 ```bash
 ssh ubuntu@IP "git clone https://github.com/inigo99/navarra-trip-agent.git"
-scp backend/data/navarra.duckdb ubuntu@IP:navarra-trip-agent/backend/data/
-scp -r backend/data/lancedb ubuntu@IP:navarra-trip-agent/backend/data/
 ssh ubuntu@IP "curl -L -o navarra-trip-agent/infra/osrm/navarra-latest.osm.pbf https://download.geofabrik.de/europe/spain/navarra-latest.osm.pbf"
 ```
 

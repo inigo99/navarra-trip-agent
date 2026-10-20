@@ -39,7 +39,6 @@ TABLAS = {
 }
 # $ por millón de tokens (entrada, salida). ponytail: a mano; revisar en la web de Anthropic
 PRECIOS = {"anthropic:claude-haiku-4-5": (1.0, 5.0)}
-MODELOS_EMB = ("intfloat/multilingual-e5-small", "intfloat/multilingual-e5-base")
 
 
 def leer_csv(nombre: str) -> list[dict]:
@@ -312,26 +311,49 @@ def calibrar(archivo: Path) -> None:
 # ---------- embeddings ----------
 
 
+# (modelo, ONNX de los documentos, ONNX de la consulta): el índice se hace en local una vez y en
+# Vercel solo se calcula la consulta, así que pueden ir en precisiones distintas
+VARIANTES_EMB = (
+    ("intfloat/multilingual-e5-small", "quantized", "quantized"),
+    ("intfloat/multilingual-e5-base", "quantized", "quantized"),
+    ("intfloat/multilingual-e5-base", "fp16", "fp16"),
+    ("intfloat/multilingual-e5-base", "fp32", "fp32"),
+    ("intfloat/multilingual-e5-base", "fp32", "quantized"),
+    ("intfloat/multilingual-e5-base", "fp32", "fp16"),
+)
+
+
 def embeddings() -> str:
     from navarra_trip.tools import semantica
 
     con = consultas.conectar()
     consultas_ = leer_csv("consultas_semanticas.csv")
-    filas = ["| Modelo | recall@5 | MRR |", "|---|---|---|"]
-    for modelo in MODELOS_EMB:
-        emb, tabla = semantica.embebedor(modelo), semantica.tabla_de(modelo)
-        semantica.indexar(con, emb, tabla=tabla)
-        rec, rr = [], []
-        for c in consultas_:
-            relevantes = set(c["relevantes"].split("|"))
-            hits = [
-                h["id"]
-                for h in semantica.buscar_semantica(con, c["consulta"], 10, emb=emb, tabla=tabla)
-            ]
-            rec.append(len(relevantes & set(hits[:5])) / min(5, len(relevantes)))
-            rr.append(next((1 / (i + 1) for i, h in enumerate(hits) if h in relevantes), 0))
+    filas = [
+        "| Modelo | ONNX índice | ONNX consulta | recall@5 | MRR | ms/consulta |",
+        "|---|---|---|---|---|---|",
+    ]
+    for modelo, docs, consulta in VARIANTES_EMB:
         nombre = modelo.rsplit("/", 1)[-1]
-        filas.append(f"| {nombre} | {statistics.mean(rec):.2f} | {statistics.mean(rr):.2f} |")
+        try:
+            ruta = SALIDA / f"indice_{nombre}_{docs}.npz"
+            semantica.indexar(con, semantica.embebedor(modelo, docs), ruta)
+            emb = semantica.embebedor(modelo, consulta)
+            emb(["calentar"], "query")  # la carga del modelo no cuenta en el tiempo
+            rec, rr, t0 = [], [], time.perf_counter()
+            for c in consultas_:
+                relevantes = set(c["relevantes"].split("|"))
+                hits = [
+                    h["id"]
+                    for h in semantica.buscar_semantica(con, c["consulta"], 10, emb=emb, ruta=ruta)
+                ]
+                rec.append(len(relevantes & set(hits[:5])) / min(5, len(relevantes)))
+                rr.append(next((1 / (i + 1) for i, h in enumerate(hits) if h in relevantes), 0))
+            ms = (time.perf_counter() - t0) / len(consultas_) * 1000
+            res = f"{statistics.mean(rec):.2f} | {statistics.mean(rr):.2f} | {ms:.0f}"
+        except Exception as e:  # p. ej. fp16 sin soporte en la CPU: se anota y se sigue
+            res = f"error: {type(e).__name__} | – | –"
+        filas.append(f"| {nombre} | {docs} | {consulta} | {res} |")
+        print(filas[-1], flush=True)
     tabla_md = "\n".join(filas)
     print(tabla_md)
     return tabla_md

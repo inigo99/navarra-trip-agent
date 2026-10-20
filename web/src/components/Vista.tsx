@@ -7,7 +7,7 @@ import Detalle from "./Detalle";
 import Itinerario from "./Itinerario";
 import Mapa from "./Mapa";
 import Progreso from "./Progreso";
-import { DEMO, type Doc, gpx, lugares, obtener, sse } from "@/lib/api";
+import { type Doc, esEjemplo, gpx, lugares, obtener, sse } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 const boton = "rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800";
@@ -26,6 +26,7 @@ export default function Vista({ id }: { id: string }) {
     obtener<Doc>(`/plan/${id}`).then(setDoc);
   }, [id]);
   const porId = useMemo(() => (doc ? lugares(doc.plan) : {}), [doc]);
+  const ejemplo = esEjemplo(id);
 
   if (doc === undefined) return <p className="p-6">{t.cargando}</p>;
   if (doc === null) return <p className="p-6">{t.noEncontrado}</p>;
@@ -45,12 +46,12 @@ export default function Vista({ id }: { id: string }) {
         if (e.paso) setPasos((p) => [...(p ?? []), e.paso!]);
         else if (e.id) router.push(`/plan/${e.id}`);
         else {
-          setAviso(e.pregunta ?? e.error ?? "");
+          setAviso(e.error === "cupo" ? t.cupo : (e.pregunta ?? e.error ?? ""));
           setPasos(null);
         }
       });
     } catch (e) {
-      setAviso(String(e));
+      setAviso(String(e).includes("cupo") ? t.cupo : String(e));
       setPasos(null);
     }
   }
@@ -94,7 +95,7 @@ export default function Vista({ id }: { id: string }) {
             texto={doc.texto}
             quitar={quitar}
             onDetalle={setAbierto}
-            onQuitar={DEMO ? undefined : alternar}
+            onQuitar={ejemplo ? undefined : alternar}
             tQuitar={t.quitar}
           />
         </section>
@@ -103,7 +104,7 @@ export default function Vista({ id }: { id: string }) {
         </section>
       </div>
 
-      {!DEMO && ( // la demo pública no tiene API: no se puede rehacer
+      {!ejemplo && ( // los ejemplos no están en la API: no se pueden rehacer
         <section className="mt-8 rounded-lg border p-4 print:hidden">
           <h2 className="font-bold">{t.ajustar}</h2>
           <textarea

@@ -1,8 +1,9 @@
 """API HTTP para la web (`navarra-api`, documentación en http://localhost:8000/docs).
 
 POST /plan devuelve el progreso del agente por SSE (un evento por paso del grafo) y, al final,
-el plan guardado en data/planes/{id}.json para el enlace de compartir. GET /plan/{id}/gpx lo
-exporta para el móvil o el GPS.
+el plan guardado para el enlace de compartir: en data/planes/{id}.json en local y en Upstash Redis
+desplegado en Vercel (las funciones no guardan archivos). GET /plan/{id}/gpx lo exporta para el
+móvil o el GPS.
 """
 
 import json
@@ -10,12 +11,12 @@ import os
 import secrets
 import time
 import xml.etree.ElementTree as ET
-from collections import defaultdict, deque
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi import Path as Ruta
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,10 @@ from navarra_trip import agente
 from navarra_trip.tools import consultas
 
 PLANES = Path("data/planes")
+# Upstash Redis (integración del Marketplace de Vercel); sin él, disco y memoria
+REDIS_URL = os.environ.get("KV_REST_API_URL") or os.environ.get("UPSTASH_REDIS_REST_URL")
+REDIS_TOKEN = os.environ.get("KV_REST_API_TOKEN") or os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+DIAS_PLAN = 90  # lo que dura un enlace compartido en Redis (256 MB gratis: ~1300 planes)
 IdPlan = Annotated[str, Ruta(pattern=r"^[A-Za-z0-9_-]{8}$")]  # token_urlsafe(6): sin "../"
 
 app = FastAPI(title="navarra-trip-agent", version="0.1.0")
@@ -72,8 +77,19 @@ def _publico(plan: dict) -> dict:
     return {k: v for k, v in plan.items() if k != "candidatos"}  # candidatos: solo para evaluar
 
 
+def _redis(*comandos: list) -> list:
+    """Comandos de Redis por la API REST de Upstash, todos en una petición."""
+    r = httpx.post(
+        f"{REDIS_URL}/pipeline",
+        json=list(comandos),
+        headers={"Authorization": f"Bearer {REDIS_TOKEN}"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return [x.get("result") for x in r.json()]
+
+
 def _guardar(peticion: str, estado: dict, origen: str | None = None) -> dict:
-    PLANES.mkdir(parents=True, exist_ok=True)
     doc = {
         "id": secrets.token_urlsafe(6),
         "origen": origen,  # el plan ajustado es otro: el enlace del original no cambia
@@ -82,17 +98,24 @@ def _guardar(peticion: str, estado: dict, origen: str | None = None) -> dict:
         "plan": _publico(estado["plan"]),
         "texto": estado["texto"],
     }
-    (PLANES / f"{doc['id']}.json").write_text(
-        json.dumps(doc, ensure_ascii=False, default=str), encoding="utf-8"
-    )
+    texto = json.dumps(doc, ensure_ascii=False, default=str)
+    if REDIS_URL:
+        _redis(["SET", f"plan:{doc['id']}", texto, "EX", DIAS_PLAN * 86400])
+    else:
+        PLANES.mkdir(parents=True, exist_ok=True)
+        (PLANES / f"{doc['id']}.json").write_text(texto, encoding="utf-8")
     return doc
 
 
 def _leer(id: str) -> dict:
-    ruta = PLANES / f"{id}.json"
-    if not ruta.is_file():
+    if REDIS_URL:
+        texto = _redis(["GET", f"plan:{id}"])[0]
+    else:
+        ruta = PLANES / f"{id}.json"
+        texto = ruta.read_text(encoding="utf-8") if ruta.is_file() else None
+    if texto is None:
         raise HTTPException(404, "Plan no encontrado")
-    return json.loads(ruta.read_text(encoding="utf-8"))
+    return json.loads(texto)
 
 
 @app.get("/salud")
@@ -118,7 +141,10 @@ def _progreso(inicial: dict, origen: str | None = None) -> StreamingResponse:
             else:
                 yield _sse(_guardar(inicial["peticion"], estado, origen))
         except Exception as e:  # al navegador como evento, no un 500 a medio stream
-            yield _sse({"error": f"{type(e).__name__}: {e}"})
+            if type(e).__name__ == "RateLimitError":  # cuota diaria gratuita de Groq
+                yield _sse({"error": "cupo", "detalle": str(e)[:300]})
+            else:
+                yield _sse({"error": f"{type(e).__name__}: {e}"})
 
     # no-transform: sin él, el proxy de Next comprime con gzip y retiene los eventos hasta el final
     return StreamingResponse(
@@ -128,24 +154,35 @@ def _progreso(inicial: dict, origen: str | None = None) -> StreamingResponse:
     )
 
 
-# planes por IP y hora en la demo pública (0 = sin límite): la clave gratuita de Groq tiene
-# tope diario y un solo visitante podría agotarlo
+# en la demo pública (0 = sin límite): planes por IP y hora, y en total por día, porque la clave
+# gratuita de Groq da unos 55 planes al día y un solo visitante podría agotarlos
 LIMITE_HORA = int(os.environ.get("NAVARRA_LIMITE_HORA", "0"))
-_peticiones: dict[str, deque] = defaultdict(deque)
+LIMITE_DIA = int(os.environ.get("NAVARRA_LIMITE_DIA", "0"))
+_cuentas: dict[str, int] = {}
+
+
+def _contar(*claves: tuple[str, int]) -> list[int]:
+    """Incrementa contadores (clave, segundos que viven) y devuelve sus valores. En Redis valen
+    para todas las instancias de la función."""
+    if REDIS_URL:
+        cmds = [c for k, ttl in claves for c in (["INCR", k], ["EXPIRE", k, ttl])]
+        return _redis(*cmds)[::2]
+    for k, _ in claves:  # ponytail: en memoria y por proceso; para uso local basta
+        _cuentas[k] = _cuentas.get(k, 0) + 1
+    return [_cuentas[k] for k, _ in claves]
 
 
 def _limitar(request: Request) -> None:
-    """ponytail: en memoria y por proceso; con varios workers, Redis o similar."""
-    if not LIMITE_HORA:
+    if not (LIMITE_HORA or LIMITE_DIA):
         return
-    # detrás de Caddy y de la web, la IP real llega en X-Forwarded-For (la primera)
+    # en Vercel (y detrás de Caddy) la IP real llega en X-Forwarded-For (la primera)
     ip = (request.headers.get("x-forwarded-for") or request.client.host).split(",")[0].strip()
-    ahora, hechas = time.monotonic(), _peticiones[ip]
-    while hechas and ahora - hechas[0] > 3600:
-        hechas.popleft()
-    if len(hechas) >= LIMITE_HORA:
+    hora, dia = int(time.time() // 3600), datetime.now(UTC).date().isoformat()
+    n_ip, n_dia = _contar((f"ip:{ip}:{hora}", 3600), (f"dia:{dia}", 2 * 86400))
+    if LIMITE_HORA and n_ip > LIMITE_HORA:
         raise HTTPException(429, f"Límite de {LIMITE_HORA} planes por hora: prueba más tarde")
-    hechas.append(ahora)
+    if LIMITE_DIA and n_dia > LIMITE_DIA:
+        raise HTTPException(429, "cupo")  # la web lo explica en su idioma
 
 
 @app.post("/plan")

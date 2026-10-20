@@ -192,9 +192,9 @@ def similitud_por_defecto(con) -> Similitud:
     try:
         from navarra_trip.tools.semantica import buscar_semantica
 
-        buscar_semantica(con, "prueba", k=1)  # falla aquí si no hay extra o índice
+        buscar_semantica(con, "prueba", k=1)  # falla aquí si no hay índice o modelo
         return lambda i: {r["id"]: r["similitud"] for r in buscar_semantica(con, i, k=500)}
-    except (ImportError, ValueError, FileNotFoundError) as e:
+    except Exception as e:  # sin índice, sin modelo o sin red para descargarlo
         # a la vista: un scikit-learn roto dejó los planes con la búsqueda por palabras sin
         # que se notara
         print(

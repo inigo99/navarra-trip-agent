@@ -54,3 +54,52 @@ def test_prevision_marca_mal_tiempo():
     p = prevision(*OLITE, dias=2, client=httpx.Client(transport=httpx.MockTransport(api)))
     assert [d["mal_tiempo"] for d in p] == [False, True]
     assert p[1]["descripcion"] == "lluvia" and p[0]["max"] == 22.1
+
+
+def test_tiempos_precalculados_sin_osrm(tmp_path, monkeypatch):
+    from navarra_trip.tools import rutas
+
+    def osrm(req):  # 3 puntos, bloques de 2: 4 consultas por modo
+        n_src = len(req.url.params["sources"].split(";"))
+        n_dst = len(req.url.params["destinations"].split(";"))
+        fila = [600.0 if req.url.port == 5000 else 6000.0] * n_dst
+        return httpx.Response(
+            200,
+            json={
+                "code": "Ok",
+                "durations": [fila] * n_src,
+                "distances": [[1000.0] * n_dst] * n_src,
+            },
+        )
+
+    def publico(req):
+        assert (
+            req.url.host == "routing.openstreetmap.de"
+            and "navarra-trip-agent" in req.headers["user-agent"]
+        )
+        return httpx.Response(503)
+
+    destino = tmp_path / "tiempos.npz"
+    rutas.precalcular(
+        [PAMPLONA, OLITE, UJUE],
+        destino,
+        bloque=2,
+        client=httpx.Client(transport=httpx.MockTransport(osrm)),
+    )
+    monkeypatch.setattr(rutas, "TIEMPOS", str(destino))
+    assert matriz([PAMPLONA, OLITE]) == [[10.0, 10.0], [10.0, 10.0]]
+    assert matriz([PAMPLONA, OLITE], "pie")[0][1] == 100.0
+    r = ruta(
+        [PAMPLONA, OLITE, PAMPLONA],
+        geometria=True,
+        client=httpx.Client(transport=httpx.MockTransport(publico)),
+    )
+    assert r == {
+        "km": 2.0,
+        "minutos": 20,
+        "tramos": [{"km": 1.0, "minutos": 10}] * 2,
+        "geometria": None,
+    }
+    # un punto que no está en la tabla: línea recta corregida, no un error
+    lejos = matriz([PAMPLONA, (42.0, -1.0)])[0][1]
+    assert 100 < lejos < 200

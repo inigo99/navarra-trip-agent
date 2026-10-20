@@ -4,8 +4,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .env
-data/
+**/data/*
 *.duckdb
+# lo que necesita la API en Vercel (ver infra/vercel/README.md); el resto de data/ se regenera en local
+!backend/data/navarra.duckdb
+!backend/data/tiempos.npz
+!backend/data/indice_multilingual-e5-base.npz
 infra/osrm/
 node_modules/
 .next/

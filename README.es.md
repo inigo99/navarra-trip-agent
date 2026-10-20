@@ -5,7 +5,7 @@ plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registr
 
 🇬🇧 *Looking for the English version? See [`README.md`](README.md).*
 
-**Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (planes de ejemplo; para pedir los tuyos, ejecútalo en local).
+**Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (pide tu plan, con un cupo diario, o mira los planes de ejemplo).
 
 ## Estructura
 
@@ -22,7 +22,8 @@ uv run navarra-descargar          # 4 conjuntos de la v1 a data/raw/ (con caché
 uv run navarra-descargar --force  # volver a descargar
 uv run navarra-normalizar         # data/navarra.duckdb (geolocaliza con CartoCiudad, con caché)
 uv run navarra-mapa               # data/mapa.html: mapa de control con todos los puntos
-uv sync --extra semantica && uv run navarra-indexar   # índice semántico en data/lancedb
+uv run navarra-indexar            # índice semántico: multilingual-e5-base (ONNX fp32) en data/indice_*.npz
+uv run navarra-tiempos            # matrices de tiempos para desplegar sin OSRM (OSRM levantado)
 ```
 
 ## Servidor MCP (`navarra-opendata-mcp`)
@@ -36,7 +37,7 @@ Herramientas: `buscar_recursos`, `recursos_cerca`, `alojamientos_cerca`, `restau
   "mcpServers": {
     "navarra-opendata": {
       "command": "uv",
-      "args": ["--directory", "C:\\ruta\\navarra-trip-agent\\backend", "run", "--extra", "semantica", "navarra-mcp"]
+      "args": ["--directory", "C:\\ruta\\navarra-trip-agent\\backend", "run", "navarra-mcp"]
     }
   }
 }
@@ -61,7 +62,7 @@ demás es código determinista (`planner.py`) y el texto lo compone el código:
 
 ```powershell
 ollama pull qwen2.5:7b
-uv run --extra semantica navarra-plan "3 días en Estella, me gusta el románico y la naturaleza"
+uv run navarra-plan "3 días en Estella, me gusta el románico y la naturaleza"
 $env:NAVARRA_LLM = "groq:openai/gpt-oss-120b"   # opcional, con GROQ_API_KEY (gratis)
 ```
 
@@ -74,18 +75,31 @@ API FastAPI con el progreso del agente por SSE y una web Next.js con el itinerar
 plan (quitar lugares o pedir cambios). Interfaz en español, inglés o francés.
 
 ```bash
-cd backend && uv run --extra semantica navarra-api   # http://localhost:8000/docs
+cd backend && uv run navarra-api   # http://localhost:8000/docs
 cd web && npm install && npm run dev                 # http://localhost:3000
 ```
 
 ## Despliegue
 
-Demo estática en Vercel con 9 planes de ejemplo generados en local con Groq (`openai/gpt-oss-120b`)
-y OSRM: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app) (`web/README.md`).
+Todo en el plan gratuito de Vercel ([`infra/vercel/README.md`](infra/vercel/README.md)):
 
-Despliegue completo (OSRM, API, web y Caddy con HTTPS en Docker, LLM por la API gratuita de Groq) en
-una VM ARM gratuita de Oracle Cloud: guía en [`infra/oracle/README.md`](infra/oracle/README.md).
-No está activo: Oracle no tenía capacidad ARM gratuita al montarlo.
+- **Web**: Next.js, que llama directamente a la API (CORS).
+- **API**: FastAPI como función de Python (SSE, hasta 5 minutos por plan). El LLM es
+  `openai/gpt-oss-120b` por la API gratuita de Groq.
+- **Sin servidor de rutas**: los tiempos y distancias entre todos los lugares y pueblos base se
+  precalculan con el OSRM local (`navarra-tiempos`, ~690 puntos, unos MB); la línea de la ruta en el
+  mapa sale del OSRM público de FOSSGIS.
+- **Búsqueda semántica sin torch**: multilingual-e5-base en ONNX con onnxruntime (índice en fp32,
+  hecho una vez en local; consultas en fp16) y búsqueda exacta en numpy sobre los ~220 lugares.
+  Sustituye a LanceDB y sentence-transformers, que no caben en una función.
+- **Estado en Upstash Redis**: planes compartidos (90 días) y límites por IP y por día, porque la
+  clave gratuita de Groq da para unos 55 planes diarios.
+
+Los 9 planes de ejemplo (`web/public/ejemplos`, `navarra-demo`) siguen funcionando sin la API, y con
+`NEXT_PUBLIC_DEMO=1` se genera la versión estática.
+
+[`infra/oracle/`](infra/oracle/README.md) tiene una alternativa en Docker para una VM (OSRM, API,
+web y Caddy).
 
 ## Evaluación
 
@@ -121,7 +135,11 @@ embeddings | informe`). Resultados con qwen2.5:7b en local (RTX de 8 GB), octubr
   Un modelo 17 veces mayor (gpt-oss-120b) no mejora al 7B: el código compone el plan y el LLM
   solo interpreta y escribe frases. Groq sirve para alojarlo sin GPU (unas 55 peticiones al día gratis).
 
-- **Embeddings**: multilingual-e5-base, recall@5 0,70 y MRR 0,90, frente a 0,59 y 0,83 de e5-small.
+- **Embeddings** (30 consultas sobre 218 lugares, `navarra-eval embeddings`): multilingual-e5-base
+  da recall@5 0,64 y MRR 0,87, frente a 0,56 y 0,75 de e5-small. Las consultas en fp16 no pierden
+  nada frente a fp32 y usan la mitad de memoria; con int8 baja a 0,62 / 0,83 solo en la consulta y a
+  0,58 / 0,78 en índice y consulta. (El 0,70 / 0,90 anterior era sobre 156 lugares, antes de añadir
+  senderos y bodegas.)
 - **Lo que la evaluación obligó a cambiar**: el idioma y las fechas se detectan en código; el
   texto lo compone el código (el modelo ponía la vuelta después de la cena o se saltaba lugares);
   tope de tokens y contexto para que qwen no entrara en bucle; los planes "imposibles" avisan

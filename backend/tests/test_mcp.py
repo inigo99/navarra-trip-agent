@@ -204,7 +204,7 @@ def test_actividades_oficinas_y_aves():
 
 
 def test_consulta_sin_indice_cae_a_busqueda_por_texto(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)  # sin data/lancedb
+    monkeypatch.chdir(tmp_path)  # sin índice semántico
     assert _llamar("buscar_recursos", {"consulta": "olite"})[0]["id"] == "mon:3153"
 
 

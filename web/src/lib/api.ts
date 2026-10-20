@@ -1,7 +1,10 @@
-export const API = "/api"; // proxy de Next a la API (next.config.ts)
+// la API en Vercel (otro proyecto, con CORS); en local, el proxy de Next (next.config.ts)
+export const API = process.env.NEXT_PUBLIC_API_URL || "/api";
 // web pública estática: planes de ejemplo de public/ejemplos (navarra-demo), sin API
 export const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
-export const gpx = (id: string) => (DEMO ? `/ejemplos/${id}.gpx` : `${API}/plan/${id}/gpx`);
+// los planes de la API tienen ids de 8 caracteres; los de ejemplo, nombres ("estella-romanico")
+export const esEjemplo = (id: string) => DEMO || !/^[A-Za-z0-9_-]{8}$/.test(id);
+export const gpx = (id: string) => (esEjemplo(id) ? `/ejemplos/${id}.gpx` : `${API}/plan/${id}/gpx`);
 
 export type Lugar = {
   id: string;
@@ -37,7 +40,11 @@ export async function sse(ruta: string, cuerpo: object, onEvento: (e: Evento) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cuerpo),
   });
-  if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok || !r.body) {
+    // 429 con detail "cupo": el total del día; la web lo explica en su idioma
+    const detalle = await r.json().then((j) => j.detail, () => "");
+    throw new Error(typeof detalle === "string" && detalle ? detalle : `HTTP ${r.status}`);
+  }
   const lector = r.body.pipeThrough(new TextDecoderStream()).getReader();
   let resto = "";
   for (;;) {
@@ -50,7 +57,8 @@ export async function sse(ruta: string, cuerpo: object, onEvento: (e: Evento) =>
 }
 
 export async function obtener<T>(ruta: string): Promise<T | null> {
-  if (DEMO) return demo<T>(ruta);
+  const [, tipo, id] = ruta.split("/");
+  if (DEMO || (tipo === "plan" && esEjemplo(id))) return demo<T>(ruta);
   const r = await fetch(API + ruta);
   return r.ok ? r.json() : null;
 }

@@ -5,7 +5,7 @@ a day-by-day plan with real travel times, a map, lodging and restaurants from th
 
 🇪🇸 *¿Buscas la versión en español? Está en [`README.es.md`](README.es.md).*
 
-**Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (sample plans; to request your own, run it locally).
+**Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (ask for your own plan, within a daily quota, or browse the sample plans).
 
 ## Layout
 
@@ -22,7 +22,8 @@ uv run navarra-descargar          # the 4 v1 datasets into data/raw/ (cached)
 uv run navarra-descargar --force  # download again
 uv run navarra-normalizar         # data/navarra.duckdb (geocodes with CartoCiudad, cached)
 uv run navarra-mapa               # data/mapa.html: control map with every point
-uv sync --extra semantica && uv run navarra-indexar   # semantic index in data/lancedb
+uv run navarra-indexar            # semantic index: multilingual-e5-base (ONNX fp32) in data/indice_*.npz
+uv run navarra-tiempos            # travel-time matrices for deploying without OSRM (OSRM running)
 ```
 
 ## MCP server (`navarra-opendata-mcp`)
@@ -36,7 +37,7 @@ Tools: `buscar_recursos`, `recursos_cerca`, `alojamientos_cerca`, `restaurantes_
   "mcpServers": {
     "navarra-opendata": {
       "command": "uv",
-      "args": ["--directory", "C:\\path\\navarra-trip-agent\\backend", "run", "--extra", "semantica", "navarra-mcp"]
+      "args": ["--directory", "C:\\path\\navarra-trip-agent\\backend", "run", "navarra-mcp"]
     }
   }
 }
@@ -61,7 +62,7 @@ Everything else is deterministic code (`planner.py`), and the final text is asse
 
 ```powershell
 ollama pull qwen2.5:7b
-uv run --extra semantica navarra-plan "3 días en Estella, me gusta el románico y la naturaleza"
+uv run navarra-plan "3 días en Estella, me gusta el románico y la naturaleza"
 $env:NAVARRA_LLM = "groq:openai/gpt-oss-120b"   # optional, with GROQ_API_KEY (free)
 ```
 
@@ -74,18 +75,29 @@ A FastAPI API that streams the agent's progress over SSE, and a Next.js web app 
 (remove places or ask for changes). The interface is available in Spanish, English or French.
 
 ```bash
-cd backend && uv run --extra semantica navarra-api   # http://localhost:8000/docs
+cd backend && uv run navarra-api   # http://localhost:8000/docs
 cd web && npm install && npm run dev                 # http://localhost:3000
 ```
 
 ## Deployment
 
-A static demo on Vercel with 9 sample plans generated locally with Groq (`openai/gpt-oss-120b`)
-and OSRM: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app) (`web/README.md`).
+Everything runs on Vercel's free plan ([`infra/vercel/README.md`](infra/vercel/README.md)):
 
-The full deployment (OSRM, API, web and Caddy with HTTPS in Docker, with the LLM through Groq's free API) targets
-a free ARM VM on Oracle Cloud; the guide is in [`infra/oracle/README.md`](infra/oracle/README.md).
-It is not live: Oracle had no free ARM capacity when it was set up.
+- **Web**: Next.js, calling the API directly (CORS).
+- **API**: FastAPI as a Python function (SSE streaming, up to 5 minutes per plan). The LLM is
+  `openai/gpt-oss-120b` through Groq's free API.
+- **No routing server**: travel times and distances between every place and base town are
+  precomputed with the local OSRM (`navarra-tiempos`, ~690 points, a few MB); the route line on the
+  map comes from FOSSGIS's public OSRM.
+- **Semantic search without torch**: multilingual-e5-base in ONNX with onnxruntime (index in fp32,
+  built once locally; queries in fp16) and an exact numpy search over the ~220 places. It replaced
+  LanceDB and sentence-transformers, which do not fit in a function.
+- **State in Upstash Redis**: shared plans (90 days) and limits per IP and per day, because the free
+  Groq key allows about 55 plans a day.
+
+The 9 sample plans (`web/public/ejemplos`, `navarra-demo`) still work without the API, and
+`NEXT_PUBLIC_DEMO=1` builds the static version. [`infra/oracle/`](infra/oracle/README.md) has a
+Docker alternative for a VM (OSRM, API, web and Caddy).
 
 ## Evaluation
 
@@ -121,7 +133,11 @@ embeddings | informe`). Results with qwen2.5:7b running locally (8 GB RTX), Octo
   A model 17 times larger (gpt-oss-120b) does not beat the 7B: code assembles the plan and the LLM
   only interprets the request and writes sentences. Groq is for hosting it without a GPU (about 55 free requests a day).
 
-- **Embeddings**: multilingual-e5-base, recall@5 0.70 and MRR 0.90, versus 0.59 and 0.83 for e5-small.
+- **Embeddings** (30 queries over 218 places, `navarra-eval embeddings`): multilingual-e5-base gets
+  recall@5 0.64 and MRR 0.87, versus 0.56 and 0.75 for e5-small. Queries in fp16 lose nothing
+  against fp32 and use half the memory; int8 drops to 0.62 / 0.83 for queries only and to
+  0.58 / 0.78 for index and queries. (The earlier 0.70 / 0.90 was over 156 places, before trails
+  and wineries were added.)
 - **What the evaluation forced me to change**: language and dates are detected in code; the
   text is assembled by code (the model put the trip home after dinner or skipped places);
   token and context caps so qwen would not loop; "impossible" plans now warn

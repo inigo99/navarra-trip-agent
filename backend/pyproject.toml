@@ -4,20 +4,20 @@ version = "0.1.0"
 description = "Agente que planifica escapadas por Navarra con los datos abiertos del Gobierno de Navarra"
 requires-python = ">=3.12"
 license = "MIT"
+# Solo lo que necesita la API: es lo que Vercel instala en la función (máx. 500 MB, o 5 GB con
+# las funciones grandes). Ingesta, MCP y Claude van en el grupo "local", que uv instala por defecto.
 dependencies = [
     "duckdb>=1.5.6",
     "fastapi>=0.115",
     "uvicorn>=0.30",
-    "fastmcp>=4.0.10",
     "httpx>=0.27",
-    "lancedb>=0.39.0",
+    "numpy>=2",
+    "onnxruntime>=1.20",
+    "tokenizers>=0.20",
     "langchain>=1.4.3",
-    "langchain-anthropic>=1.7.5",
+    "langchain-groq>=0.3",
     "langchain-ollama>=1.1.0",
     "langgraph>=1.2.12",
-    "pyproj>=3.8.0",
-    "shapely>=2.1.2",
-    "langchain-groq>=0.3",
 ]
 
 [project.scripts]
@@ -25,6 +25,7 @@ navarra-descargar = "navarra_trip.ingest.ckan:main"
 navarra-normalizar = "navarra_trip.ingest.normaliza:main"
 navarra-mapa = "navarra_trip.ingest.mapa:main"
 navarra-indexar = "navarra_trip.tools.semantica:main"
+navarra-tiempos = "navarra_trip.tools.rutas:main"
 navarra-mcp = "navarra_trip.mcp_server:main"
 navarra-plan = "navarra_trip.agente:main"
 navarra-eval = "navarra_trip.evaluacion:main"
@@ -32,9 +33,9 @@ navarra-api = "navarra_trip.api:main"
 navarra-demo = "navarra_trip.demo:main"
 
 [project.optional-dependencies]
-semantica = [
-    "sentence-transformers>=3",
-]
+# ya no hace falta (la búsqueda semántica va en ONNX, sin torch); se deja para no romper
+# configuraciones como la del servidor MCP en Claude Desktop que lo pasan
+semantica = []
 
 [dependency-groups]
 dev = [
@@ -42,6 +43,19 @@ dev = [
     "ruff>=0.6",
     "pre-commit>=3",
 ]
+local = [
+    "fastmcp>=4.0.10",
+    "langchain-anthropic>=1.7.5",
+    "pyproj>=3.8.0",
+    "shapely>=2.1.2",
+]
+
+[tool.uv]
+default-groups = ["dev", "local"]
+
+# Vercel: app.py es la entrada (FastAPI) y el build descarga el modelo ONNX a data/modelos
+[tool.vercel.scripts]
+build = "python vercel_build.py"
 
 [build-system]
 requires = ["hatchling"]

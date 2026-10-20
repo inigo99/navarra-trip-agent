@@ -104,13 +104,44 @@ def test_limite_por_ip(con, monkeypatch, tmp_path):  # noqa: F811
     monkeypatch.setattr(api, "_grafo", lambda: _grafo(con, req, ["Bonito."] * 2))
     monkeypatch.setattr(api, "PLANES", tmp_path)
     monkeypatch.setattr(api, "LIMITE_HORA", 1)
-    monkeypatch.setattr(api, "_peticiones", api.defaultdict(api.deque))
+    monkeypatch.setattr(api, "_cuentas", {})
     cli = TestClient(api.app)
     ip = {"x-forwarded-for": "1.2.3.4, 10.0.0.1"}
     assert cli.post("/plan", json={"peticion": "Un día en Olite"}, headers=ip).status_code == 200
     assert cli.post("/plan", json={"peticion": "Un día en Olite"}, headers=ip).status_code == 429
     otra = {"x-forwarded-for": "5.6.7.8"}
     assert cli.post("/plan", json={"peticion": "Un día en Olite"}, headers=otra).status_code == 200
+
+
+def test_en_vercel_planes_y_cupo_diario_en_redis(con, monkeypatch):  # noqa: F811
+    datos: dict = {}
+
+    def redis(*cmds):  # lo justo de Redis para lo que usa la API
+        out = []
+        for c in cmds:
+            if c[0] == "SET":
+                assert c[3:] == ["EX", api.DIAS_PLAN * 86400]
+                datos[c[1]] = c[2]
+                out.append("OK")
+            elif c[0] == "GET":
+                out.append(datos.get(c[1]))
+            elif c[0] == "INCR":
+                datos[c[1]] = datos.get(c[1], 0) + 1
+                out.append(datos[c[1]])
+            else:
+                out.append(1)
+        return out
+
+    req = Requisitos(dias=1, base="Olite", intereses=["románica"])
+    monkeypatch.setattr(api, "_grafo", lambda: _grafo(con, req, ["Bonito."] * 2))
+    monkeypatch.setattr(api, "REDIS_URL", "https://redis.test")
+    monkeypatch.setattr(api, "_redis", redis)
+    monkeypatch.setattr(api, "LIMITE_DIA", 1)
+    cli = TestClient(api.app)
+    fin = _eventos(cli.post("/plan", json={"peticion": "Un día en Olite"}))[-1]
+    assert cli.get(f"/plan/{fin['id']}").json()["texto"] == fin["texto"]  # leído de Redis
+    otra = cli.post("/plan", json={"peticion": "Otro"}, headers={"x-forwarded-for": "9.9.9.9"})
+    assert otra.status_code == 429 and otra.json()["detail"] == "cupo"  # el total del día
 
 
 def test_demo_regenerar_uno_conserva_los_demas(con, tmp_path):  # noqa: F811
