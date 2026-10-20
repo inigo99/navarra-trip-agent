@@ -1344,14 +1344,12 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-local = [
     { name = "fastmcp" },
     { name = "langchain-anthropic" },
+    { name = "pre-commit" },
     { name = "pyproj" },
+    { name = "pytest" },
+    { name = "ruff" },
     { name = "shapely" },
 ]
 
@@ -1373,14 +1371,12 @@ provides-extras = ["semantica"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pre-commit", specifier = ">=3" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.6" },
-]
-local = [
     { name = "fastmcp", specifier = ">=4.0.10" },
     { name = "langchain-anthropic", specifier = ">=1.7.5" },
+    { name = "pre-commit", specifier = ">=3" },
     { name = "pyproj", specifier = ">=3.8.0" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.6" },
     { name = "shapely", specifier = ">=2.1.2" },
 ]
 

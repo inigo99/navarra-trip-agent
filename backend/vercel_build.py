@@ -10,4 +10,7 @@ from navarra_trip.tools.semantica import INDICE, descargar  # noqa: E402
 if __name__ == "__main__":
     for f in (INDICE, "data/navarra.duckdb", "data/tiempos.npz"):
         assert os.path.exists(f), f"falta {f}: genéralo en local y súbelo (infra/vercel/README.md)"
-    print("modelo en", descargar())
+    if os.environ.get("NAVARRA_MODELOS", "").startswith("/tmp"):
+        print("modelo: se descargará en /tmp al arrancar la función")
+    else:
+        print("modelo en", descargar())

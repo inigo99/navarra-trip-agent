@@ -5,7 +5,7 @@ description = "Agente que planifica escapadas por Navarra con los datos abiertos
 requires-python = ">=3.12"
 license = "MIT"
 # Solo lo que necesita la API: es lo que Vercel instala en la función (máx. 500 MB, o 5 GB con
-# las funciones grandes). Ingesta, MCP y Claude van en el grupo "local", que uv instala por defecto.
+# las funciones grandes). Ingesta, MCP y Claude van en el grupo dev.
 dependencies = [
     "duckdb>=1.5.6",
     "fastapi>=0.115",
@@ -37,21 +37,18 @@ navarra-demo = "navarra_trip.demo:main"
 # configuraciones como la del servidor MCP en Claude Desktop que lo pasan
 semantica = []
 
+# dev: lo que se usa en local además de la API (tests, ingesta, servidor MCP, Claude). uv lo
+# instala por defecto; Vercel no (sync --no-dev), y así la función no pasa de 500 MB.
 [dependency-groups]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
     "pre-commit>=3",
-]
-local = [
     "fastmcp>=4.0.10",
     "langchain-anthropic>=1.7.5",
     "pyproj>=3.8.0",
     "shapely>=2.1.2",
 ]
-
-[tool.uv]
-default-groups = ["dev", "local"]
 
 # Vercel: app.py es la entrada (FastAPI) y el build descarga el modelo ONNX a data/modelos
 [tool.vercel.scripts]

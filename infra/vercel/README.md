@@ -29,13 +29,16 @@ el código. Repite los dos comandos cada vez que regeneres la base de datos.
 
 1. En Vercel: *Add New → Project*, el repo `navarra-trip-agent`, **Root Directory `backend`**.
    Detecta FastAPI (`app.py`); el build (`vercel_build.py`) descarga el modelo ONNX.
-2. *Environment Variables*:
-   - `GROQ_API_KEY`: tu clave de <https://console.groq.com>.
-   - `VERCEL_SUPPORT_LARGE_FUNCTIONS` = `1`: la función ocupa ~840 MB (el modelo en fp16 son 555)
-     y el límite normal es 500 MB.
-3. *Storage → Marketplace → Upstash (Redis)*, plan gratuito, región `us-east-1` (la de las funciones
+2. *Environment Variables*: `GROQ_API_KEY`, tu clave de <https://console.groq.com>.
+3. Tamaño: la función ocupa ~840 MB (el modelo en fp16 son 555) y el límite normal es 500 MB. Al
+   crear el proyecto no deja poner variables `VERCEL_*`: después, en *Settings → Environment
+   Variables*, añade `VERCEL_SUPPORT_LARGE_FUNCTIONS` = `1` (funciones grandes, beta, hasta 5 GB).
+   Si no lo admite, plan B: `NAVARRA_MODELOS` = `/tmp/modelos` y `NAVARRA_ONNX` = `quantized`.
+   La función se queda en ~290 MB y el modelo int8 (280 MB) se descarga al arrancar (unos
+   segundos más en el primer plan tras un rato sin uso; calidad 0,62 / 0,83 en vez de 0,64 / 0,87).
+4. *Storage → Marketplace → Upstash (Redis)*, plan gratuito, región `us-east-1` (la de las funciones
    por defecto) y *Connect* al proyecto: añade `KV_REST_API_URL` y `KV_REST_API_TOKEN`.
-4. *Deploy*. Comprueba `https://<api>.vercel.app/salud` y `https://<api>.vercel.app/docs`.
+5. *Deploy*. Comprueba `https://<api>.vercel.app/salud` y `https://<api>.vercel.app/docs`.
 
 El resto de la configuración está en `backend/app.py` (modelo de Groq, límites de 5 planes por IP y
 hora y 45 al día, dominios con CORS); cualquier variable de entorno con el mismo nombre la sustituye.

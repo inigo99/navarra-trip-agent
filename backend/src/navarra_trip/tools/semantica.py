@@ -9,6 +9,7 @@ Antes era sentence-transformers + LanceDB: torch y pyarrow no caben en una funci
 """
 
 import os
+import uuid
 from collections.abc import Callable
 from functools import cache
 from pathlib import Path
@@ -32,7 +33,8 @@ ONNX = {
 # memoria. int8 en la consulta bajaba a 0,62 / 0,83 y en las dos, a 0,58 / 0,78.
 VARIANTE = os.environ.get("NAVARRA_ONNX", "fp16")  # consultas
 VARIANTE_INDICE = os.environ.get("NAVARRA_ONNX_INDICE", "fp32")
-MODELOS = Path("data/modelos")
+# en Vercel sin funciones grandes: /tmp/modelos (se descarga al arrancar; /tmp admite 500 MB)
+MODELOS = Path(os.environ.get("NAVARRA_MODELOS", "data/modelos"))
 DATOS = Path("data")
 MAX_TOKENS = 512  # el de e5
 
@@ -60,13 +62,13 @@ def descargar(modelo: str = MODELO, variante: str = VARIANTE) -> Path:
             continue
         destino.mkdir(parents=True, exist_ok=True)
         url = f"https://huggingface.co/{ONNX[modelo]}/resolve/main/{remoto}"
-        tmp = f.with_suffix(".part")
+        tmp = f.with_suffix(f".{uuid.uuid4().hex}.part")  # dos peticiones a la vez no se pisan
         with httpx.stream("GET", url, follow_redirects=True, timeout=120) as r:
             r.raise_for_status()
             with tmp.open("wb") as out:
                 for trozo in r.iter_bytes(1 << 20):
                     out.write(trozo)
-        tmp.rename(f)  # sin .part a medias si se corta
+        os.replace(tmp, f)  # sin archivos a medias si se corta
     return destino
 
 
