@@ -5,12 +5,18 @@ a day-by-day plan with real travel times, a map, lodging and restaurants from th
 
 🇪🇸 *¿Buscas la versión en español? Está en [`README.es.md`](README.es.md).*
 
-**Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (ask for your own plan, within a daily quota, or browse the sample plans).
+**Demo: [navarra-trip-agent.vercel.app](https://navarra-trip-agent.vercel.app)**: ask for your own plan ("2 days in Olite,
+castles and wine", "pintxos bars in Estella"), within a daily quota, or browse the sample plans.
+
+**Stack**: Python, LangGraph, FastAPI, DuckDB, ONNX Runtime (multilingual-e5), OSRM, MCP · Next.js,
+MapLibre · Vercel, Upstash Redis, Groq · evaluation with code validators and a calibrated LLM judge.
 
 ## Layout
 
 - `backend/`: Python 3.12 + uv (ingestion, tools, agent, MCP server and API).
 - `web/`: Next.js 16 + TypeScript + Tailwind + MapLibre.
+- `infra/`: OSRM in Docker, deployment on Vercel and an alternative for a VM.
+- `skills/`: a skill so other agents can use the MCP server.
 
 ## Development
 
@@ -43,6 +49,10 @@ Tools: `buscar_recursos`, `recursos_cerca`, `alojamientos_cerca`, `restaurantes_
 }
 ```
 
+### Skill
+
+[`skills/navarra-trip-planner/SKILL.md`](skills/navarra-trip-planner/SKILL.md) tells an agent (Claude Code, Claude Desktop…) when to use these tools and how: options vs. day-by-day plans, real travel times with `ruta`, and no invented hours, prices or phone numbers. Copy the folder to `~/.claude/skills/` or to your project's `.claude/skills/`.
+
 ## Planning agent
 
 Built with LangGraph. The LLM only interprets the request and writes one or two sentences per place.
@@ -52,7 +62,8 @@ Everything else is deterministic code (`planner.py`), and the final text is asse
   of each interest (semantic search with multilingual-e5-base). Hiking trails only if asked for.
 - **Days** built with real OSRM travel times: each interest takes a turn opening a day, and the place
   that adds the least to the return trip is added next, until the end time set by the pace (17:30, 19:00 or 20:00).
-  Places in the base town are visited together, on the same day. Walks and hours on foot are capped; when it rains, monuments are picked.
+  Places in the base town are visited together, on the same day, and what is left of them fills short afternoons.
+  Walks and hours on foot are capped; when it rains, monuments are picked.
 - **Order** is exactly optimal (Held-Karp), with times rounded to the quarter hour, lunch (or a picnic on the way),
   longer visits if the afternoon has room, dinner or a pintxos round, and lodging (if there is an overnight stay).
 - **Options without an itinerary** ("a mountain walk near Isaba", "pintxos bars in Estella"):
@@ -72,11 +83,11 @@ The full plan (with GeoJSON) is written to `data/plan.json`. OSRM must be runnin
 
 A FastAPI API that streams the agent's progress over SSE, and a Next.js web app with the itinerary, the map
 (MapLibre + OpenFreeMap), a card for each place, GPX and PDF export, a share link and plan adjustment
-(remove places or ask for changes). The interface is available in Spanish, English or French.
+(remove places, which keeps the other days as they were, or ask for changes). The interface is available in Spanish, English or French.
 
 ```bash
-cd backend && uv run navarra-api   # http://localhost:8000/docs
-cd web && npm install && npm run dev                 # http://localhost:3000
+cd backend && uv run navarra-api          # http://localhost:8000/docs
+cd web && npm install && npm run dev      # http://localhost:3000
 ```
 
 ## Deployment
@@ -163,3 +174,4 @@ and Climbing Federation via [IDENA](https://idena.navarra.es), CC BY 4.0. Descri
 and Wikidata (CC0); places missing from the official datasets are in `recursos_extra.csv`, each with its source.
 Geocoding of lodging and restaurants: [CartoCiudad](https://www.cartociudad.es) (IGN), CC BY 4.0.
 Routes, map, peaks, bars and wineries: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, ODbL.
+`backend/data/` includes the database, the semantic index and the travel-time matrices that the deployed API uses.

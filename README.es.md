@@ -5,12 +5,19 @@ plan por días con tiempos reales, mapa, alojamientos y restaurantes del Registr
 
 🇬🇧 *Looking for the English version? See [`README.md`](README.md).*
 
-**Demo: [navarra-trip-agent-pearl.vercel.app](https://navarra-trip-agent-pearl.vercel.app)** (pide tu plan, con un cupo diario, o mira los planes de ejemplo).
+**Demo: [navarra-trip-agent.vercel.app](https://navarra-trip-agent.vercel.app)**: pide tu plan ("2 días en Olite,
+castillos y vino", "bares de pintxos en Estella"), con un cupo diario, o mira los planes de ejemplo.
+
+**Tecnologías**: Python, LangGraph, FastAPI, DuckDB, ONNX Runtime (multilingual-e5), OSRM, MCP ·
+Next.js, MapLibre · Vercel, Upstash Redis, Groq · evaluación con validadores en código y juez LLM
+calibrado.
 
 ## Estructura
 
 - `backend/`: Python 3.12 + uv (ingesta, herramientas, agente, servidor MCP y API).
 - `web/`: Next.js 16 + TypeScript + Tailwind + MapLibre.
+- `infra/`: OSRM en Docker, despliegue en Vercel y una alternativa para una VM.
+- `skills/`: un skill para que otros agentes usen el servidor MCP.
 
 ## Desarrollo
 
@@ -43,6 +50,10 @@ Herramientas: `buscar_recursos`, `recursos_cerca`, `alojamientos_cerca`, `restau
 }
 ```
 
+### Skill
+
+[`skills/navarra-trip-planner/SKILL.md`](skills/navarra-trip-planner/SKILL.md) le dice a un agente (Claude Code, Claude Desktop…) cuándo usar estas herramientas y cómo: opciones o plan por días, tiempos reales con `ruta` y sin inventar horarios, precios ni teléfonos. Copia la carpeta a `~/.claude/skills/` o al `.claude/skills/` de tu proyecto.
+
 ## Agente planificador
 
 LangGraph. El LLM solo interpreta la petición y escribe una o dos frases por lugar; todo lo
@@ -52,7 +63,8 @@ demás es código determinista (`planner.py`) y el texto lo compone el código:
   interés (búsqueda semántica con multilingual-e5-base); senderos solo si se piden.
 - **Días** con tiempos reales de OSRM: cada día lo abre por turnos un interés y se añade lo que
   menos alarga la vuelta, hasta la hora de fin del ritmo (17:30, 19:00 o 20:00). Lo del pueblo
-  base se ve seguido y en su día; tope de caminatas y de horas andando; con lluvia, monumentos.
+  base se ve seguido y en su día, y lo que sobra rellena las tardes cortas; tope de caminatas y de
+  horas andando; con lluvia, monumentos.
 - **Orden** óptimo exacto (Held-Karp), horas al cuarto de hora, comida (o picnic en ruta),
   visitas alargadas si sobra tarde, cena o ronda de pintxos y alojamientos (si hay noche).
 - **Opciones sin itinerario** ("una ruta de monte cerca de Isaba", "bares de pintxos en
@@ -72,11 +84,12 @@ El plan completo (con GeoJSON) queda en `data/plan.json`. Necesita OSRM levantad
 
 API FastAPI con el progreso del agente por SSE y una web Next.js con el itinerario, el mapa
 (MapLibre + OpenFreeMap), la ficha de cada lugar, GPX, PDF, enlace para compartir y ajuste del
-plan (quitar lugares o pedir cambios). Interfaz en español, inglés o francés.
+plan (quitar lugares, que deja igual los demás días, o pedir cambios). Interfaz en español, inglés
+o francés.
 
 ```bash
-cd backend && uv run navarra-api   # http://localhost:8000/docs
-cd web && npm install && npm run dev                 # http://localhost:3000
+cd backend && uv run navarra-api          # http://localhost:8000/docs
+cd web && npm install && npm run dev      # http://localhost:3000
 ```
 
 ## Despliegue
@@ -165,3 +178,4 @@ de Deportes de Montaña y Escalada vía [IDENA](https://idena.navarra.es), CC BY
 y Wikidata (CC0); lugares que faltan en los conjuntos oficiales, en `recursos_extra.csv` con su fuente.
 Geolocalización de alojamientos y restaurantes: [CartoCiudad](https://www.cartociudad.es) (IGN), CC BY 4.0.
 Rutas, mapa, cimas, bares y bodegas: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright), ODbL.
+`backend/data/` incluye la base de datos, el índice semántico y las matrices de tiempos que usa la API desplegada.
